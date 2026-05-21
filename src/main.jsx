@@ -1,0 +1,3492 @@
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import './styles.css';
+
+/* ─────────────────────────────────────────────────────────────────────────
+   tweaks-panel.jsx — Live preview control panel.
+
+   The original export referenced a `tweaks-panel.jsx` script that was not
+   included in the bundle. It is reconstructed here from how `App` consumes
+   it (see `useTweaks` / `AppTweaks` in the app section below): a state hook
+   plus a small set of presentational controls rendered in a floating,
+   collapsible panel. Selections persist to localStorage.
+   ───────────────────────────────────────────────────────────────────────── */
+
+const TWEAKS_STORAGE_KEY = 'teamhub.tweaks';
+
+function useTweaks(defaults) {
+  const [t, setT] = React.useState(() => {
+    try {
+      const saved = localStorage.getItem(TWEAKS_STORAGE_KEY);
+      return saved ? { ...defaults, ...JSON.parse(saved) } : { ...defaults };
+    } catch (e) {
+      return { ...defaults };
+    }
+  });
+
+  const setTweak = React.useCallback((key, value) => {
+    setT(prev => {
+      const next = { ...prev, [key]: value };
+      try {
+        localStorage.setItem(TWEAKS_STORAGE_KEY, JSON.stringify(next));
+      } catch (e) { /* storage unavailable — ignore */ }
+      return next;
+    });
+  }, []);
+
+  return [t, setTweak];
+}
+
+function TweaksPanel({ children }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <div className={`tw-panel ${open ? 'tw-open' : ''}`}>
+      {open && (
+        <div className="tw-body">
+          <div className="tw-head">
+            <span>Preview controls</span>
+            <button className="tw-close" onClick={() => setOpen(false)} aria-label="Close controls">×</button>
+          </div>
+          <div className="tw-content">{children}</div>
+        </div>
+      )}
+      {!open && (
+        <button className="tw-fab" onClick={() => setOpen(true)} aria-label="Open preview controls">
+          Controls
+        </button>
+      )}
+    </div>
+  );
+}
+
+function TweakSection({ label }) {
+  return <div className="tw-section">{label}</div>;
+}
+
+function TweakToggle({ label, value, onChange }) {
+  return (
+    <label className="tw-row">
+      <span className="tw-label">{label}</span>
+      <input
+        type="checkbox"
+        className="tw-toggle"
+        checked={!!value}
+        onChange={e => onChange(e.target.checked)}
+      />
+    </label>
+  );
+}
+
+function TweakRadio({ label, value, options, onChange }) {
+  return (
+    <div className="tw-row tw-row-col">
+      <span className="tw-label">{label}</span>
+      <div className="tw-segmented">
+        {options.map(opt => (
+          <button
+            key={opt}
+            type="button"
+            className={value === opt ? 'tw-seg on' : 'tw-seg'}
+            onClick={() => onChange(opt)}
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TweakSelect({ label, value, options, onChange }) {
+  return (
+    <label className="tw-row tw-row-col">
+      <span className="tw-label">{label}</span>
+      <select
+        className="tw-select"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+      >
+        {options.map(opt => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/* ═══════════════ components.jsx ═══════════════ */
+// components.jsx — Shared building blocks for StartupLaunch
+// Icons (line-style, 1.5px stroke), small wrapper components, and the seed data.
+
+// ─────────────────────────────────────────────────────────────────────────
+// Icons
+// ─────────────────────────────────────────────────────────────────────────
+const Icon = ({ d, size = 16, fill = "none", stroke = "currentColor", strokeWidth = 1.6, children, ...rest }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={stroke} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" {...rest}>
+    {d ? <path d={d} /> : children}
+  </svg>
+);
+
+const I = {
+  Home: (p) => <Icon {...p}><path d="M3 11.5L12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></Icon>,
+  Lightbulb: (p) => <Icon {...p}><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.74V17h8v-2.26A7 7 0 0 0 12 2z"/></Icon>,
+  Users: (p) => <Icon {...p}><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.4 3.2-5 6-5s5.4 1.6 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14c2.5.2 4.2 1.8 5 5"/></Icon>,
+  Compass: (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></Icon>,
+  Box: (p) => <Icon {...p}><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/></Icon>,
+  GradCap: (p) => <Icon {...p}><path d="M2 9l10-4 10 4-10 4z"/><path d="M6 11v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/><path d="M22 9v6"/></Icon>,
+  Receipt: (p) => <Icon {...p}><path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6"/><path d="M9 12h6"/><path d="M9 16h4"/></Icon>,
+  Slide: (p) => <Icon {...p}><rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 9h10"/><path d="M7 13h6"/></Icon>,
+  Cart: (p) => <Icon {...p}><circle cx="9" cy="20" r="1.4"/><circle cx="17" cy="20" r="1.4"/><path d="M3 4h2l2.5 11h11l2-8H7"/></Icon>,
+  Bell: (p) => <Icon {...p}><path d="M6 15V10a6 6 0 0 1 12 0v5l1.5 2H4.5z"/><path d="M10 19a2 2 0 0 0 4 0"/></Icon>,
+  Search: (p) => <Icon {...p}><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></Icon>,
+  Flame: (p) => <Icon {...p}><path d="M12 22c4 0 7-3 7-7 0-3-2-5-3-7-1 2-3 3-3 5 0-3-1-5-3-7-1 4-4 5-4 9 0 4 3 7 6 7z"/></Icon>,
+  Star: (p) => <Icon {...p}><path d="M12 3l2.6 5.6 6 .9-4.3 4.3 1 6.2L12 17l-5.3 3 1-6.2L3.4 9.5l6-.9z"/></Icon>,
+  Sun: (p) => <Icon {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></Icon>,
+  Moon: (p) => <Icon {...p}><path d="M20 14.5A8 8 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></Icon>,
+  Plus: (p) => <Icon {...p}><path d="M12 5v14M5 12h14"/></Icon>,
+  Check: (p) => <Icon {...p}><path d="M4 12l5 5L20 6"/></Icon>,
+  X: (p) => <Icon {...p}><path d="M6 6l12 12M18 6L6 18"/></Icon>,
+  Chevron: (p) => <Icon {...p}><path d="M9 6l6 6-6 6"/></Icon>,
+  ArrowRight: (p) => <Icon {...p}><path d="M5 12h14M13 6l6 6-6 6"/></Icon>,
+  Cal: (p) => <Icon {...p}><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></Icon>,
+  Clock: (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></Icon>,
+  Send: (p) => <Icon {...p}><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></Icon>,
+  File: (p) => <Icon {...p}><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></Icon>,
+  Paper: (p) => <Icon {...p}><path d="M5 3h11l3 3v15H5z"/><path d="M16 3v4h3"/><path d="M9 12h6M9 16h6M9 8h2"/></Icon>,
+  Mic: (p) => <Icon {...p}><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></Icon>,
+  Sparkle: (p) => <Icon {...p}><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5z"/><path d="M19 16l.7 1.8L21.5 18.5l-1.8.7L19 21l-.7-1.8L16.5 18.5l1.8-.7z"/></Icon>,
+  Heart: (p) => <Icon {...p}><path d="M12 21s-7-4.5-9-9.5C1.5 7 5 4 8 5.5c1.5.7 3 2 4 4 1-2 2.5-3.3 4-4 3-1.5 6.5 1.5 5 6-2 5-9 9.5-9 9.5z"/></Icon>,
+  Money: (p) => <Icon {...p}><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></Icon>,
+  Trophy: (p) => <Icon {...p}><path d="M8 3h8v4a4 4 0 0 1-8 0z"/><path d="M5 5H3v2a3 3 0 0 0 3 3"/><path d="M19 5h2v2a3 3 0 0 1-3 3"/><path d="M9 14h6l-1 4h-4z"/><path d="M8 21h8"/></Icon>,
+  Chart: (p) => <Icon {...p}><path d="M3 20h18"/><path d="M6 17V9M11 17V5M16 17v-7M21 17V12"/></Icon>,
+  Megaphone: (p) => <Icon {...p}><path d="M3 11v2l11 5V6z"/><path d="M14 9c2 0 3 1.5 3 3s-1 3-3 3"/><path d="M7 13v4a2 2 0 0 0 4 0v-3"/></Icon>,
+  Edit: (p) => <Icon {...p}><path d="M4 20h4l10-10-4-4L4 16z"/><path d="M14 6l4 4"/></Icon>,
+  Filter: (p) => <Icon {...p}><path d="M3 5h18l-7 8v6l-4 2v-8z"/></Icon>,
+  Pin: (p) => <Icon {...p}><path d="M12 22v-7"/><path d="M9 4h6l-1 6 4 3H6l4-3z"/></Icon>,
+  Globe: (p) => <Icon {...p}><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></Icon>,
+  Settings: (p) => <Icon {...p}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.4 0 .8.3 1 .6.3.2.6.4.9.4H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></Icon>,
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// Toast + celebrate
+// ─────────────────────────────────────────────────────────────────────────
+const ToastCtx = React.createContext(null);
+function ToastProvider({ children }) {
+  const [toast, setToast] = React.useState(null);
+  const show = React.useCallback((msg, opts = {}) => {
+    setToast({ msg, ...opts });
+    setTimeout(() => setToast(null), opts.duration || 2400);
+  }, []);
+  return (
+    <ToastCtx.Provider value={show}>
+      {children}
+      {toast && (
+        <div className="toast">
+          {toast.icon || <I.Check size={14} />}
+          <span>{toast.msg}</span>
+        </div>
+      )}
+    </ToastCtx.Provider>
+  );
+}
+const useToast = () => React.useContext(ToastCtx);
+
+// Celebration overlay (stage complete)
+function Celebrate({ stage, onClose }) {
+  React.useEffect(() => {
+    const t = setTimeout(onClose, 3500);
+    return () => clearTimeout(t);
+  }, [onClose]);
+  const colors = ['#F47A1F', '#0E1F44', '#C28B2C', '#2F6B3B', '#6B1F2A'];
+  const confetti = Array.from({ length: 50 }, (_, i) => ({
+    id: i,
+    left: Math.random() * 100,
+    delay: Math.random() * 0.5,
+    duration: 2 + Math.random() * 1.5,
+    color: colors[i % colors.length],
+    rotate: Math.random() * 360,
+    size: 6 + Math.random() * 8,
+  }));
+  return (
+    <div className="celebrate-overlay" onClick={onClose}>
+      <style>{`
+        @keyframes confetti-fall {
+          0% { transform: translateY(-100vh) rotate(0); opacity: 1; }
+          100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        }
+      `}</style>
+      {confetti.map(c => (
+        <div key={c.id} style={{
+          position: 'fixed',
+          top: 0, left: `${c.left}%`,
+          width: c.size, height: c.size,
+          background: c.color,
+          animation: `confetti-fall ${c.duration}s ease-in ${c.delay}s forwards`,
+          transform: `rotate(${c.rotate}deg)`,
+          borderRadius: c.id % 3 === 0 ? '50%' : '2px',
+        }}/>
+      ))}
+      <div className="celebrate-card" onClick={e => e.stopPropagation()}>
+        <div className="badge-coin" style={{width: 96, height: 96, fontSize: 40, margin: '0 auto 20px'}}>
+          <I.Trophy size={44} />
+        </div>
+        <div className="kicker">Stage complete</div>
+        <h1 style={{fontSize: 34, margin: '6px 0 10px'}}>{stage.title}</h1>
+        <p className="muted" style={{margin: '0 0 24px'}}>{stage.message}</p>
+        <button className="btn primary lg" onClick={onClose}>Onward to {stage.next} <I.ArrowRight size={14}/></button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Seed data
+// ─────────────────────────────────────────────────────────────────────────
+const STAGES = [
+  { key: 'ideation',    label: 'Ideation',     sub: 'Stage 1', icon: 'Lightbulb' },
+  { key: 'validation',  label: 'Validation',   sub: 'Stage 2', icon: 'Compass' },
+  { key: 'prototyping', label: 'Prototyping',  sub: 'Stage 3', icon: 'Box' },
+  { key: 'incubation',  label: 'Incubation',   sub: 'Stage 4', icon: 'GradCap' },
+  { key: 'launch',      label: 'Launch & Sales', sub: 'Stage 5', icon: 'Receipt' },
+];
+
+const NAV_STUDENT = [
+  { key: 'dashboard', label: 'Dashboard', icon: 'Home' },
+  { key: 'idea',      label: 'My Idea',   icon: 'Lightbulb' },
+  { key: 'team',      label: 'Team',      icon: 'Users', badge: 3 },
+  { sect: 'JOURNEY' },
+  { key: 'validation', label: 'Validation', icon: 'Compass' },
+  { key: 'prototype',  label: 'Prototype',  icon: 'Box' },
+  { key: 'mentor',     label: 'Mentors',    icon: 'GradCap' },
+  { key: 'customers',  label: 'First Customers', icon: 'Receipt' },
+  { key: 'pitch',      label: 'Pitch Deck', icon: 'Slide' },
+  { sect: 'COMMUNITY' },
+  { key: 'marketplace', label: 'Marketplace', icon: 'Cart' },
+  { key: 'leaderboard', label: 'Leaderboard', icon: 'Trophy' },
+];
+const NAV_MENTOR = [
+  { key: 'mentor-dash', label: 'Dashboard', icon: 'Home' },
+  { key: 'mentor-teams', label: 'My Teams', icon: 'Users', badge: 4 },
+  { key: 'mentor-reviews', label: 'Reviews', icon: 'Paper', badge: 2 },
+  { key: 'mentor-calendar', label: 'Office Hours', icon: 'Cal' },
+];
+const NAV_ADMIN = [
+  { key: 'admin-dash', label: 'Overview', icon: 'Chart' },
+  { key: 'admin-teams', label: 'Teams', icon: 'Users' },
+  { key: 'admin-mentors', label: 'Mentors', icon: 'GradCap' },
+  { key: 'admin-resources', label: 'Resources', icon: 'File' },
+  { key: 'admin-settings', label: 'Settings', icon: 'Settings' },
+];
+
+const TEAM = {
+  name: "Cohere Labs",
+  tagline: "Smart scheduling for student orgs",
+  members: [
+    { id: 'me', name: 'You', initials: 'AK', role: 'CEO', avc: 'av-1', active: true },
+    { id: 'p2', name: 'Priya Shah', initials: 'PS', role: 'Product', avc: 'av-2' },
+    { id: 'p3', name: 'Marcus Reid', initials: 'MR', role: 'Marketing', avc: 'av-3' },
+    { id: 'p4', name: 'Jin Liu', initials: 'JL', role: 'Design', avc: 'av-4' },
+  ],
+  xp: 2840,
+  streak: 12,
+  rank: 7,
+};
+
+const MENTORS = [
+  { id: 'm1', name: 'Dr. Elena Park', initials: 'EP', avc: 'av-2', title: 'Faculty · Sloan School', tags: ['SaaS', 'B2B', 'Go-to-market'], rating: 4.9, sessions: 84, available: 'This week', match: 96 },
+  { id: 'm2', name: 'Tomás Vega', initials: 'TV', avc: 'av-3', title: 'Founder, Routely (acq. 2023)', tags: ['Marketplaces', 'Mobile', 'Fundraising'], rating: 4.8, sessions: 62, available: 'Mon, Thu', match: 92 },
+  { id: 'm3', name: 'Hana Otieno', initials: 'HO', avc: 'av-4', title: 'Alumna · CFO @ Stripe', tags: ['Finance', 'Operations'], rating: 5.0, sessions: 41, available: 'Booked', match: 88 },
+  { id: 'm4', name: 'Prof. David Kahn', initials: 'DK', avc: 'av-5', title: 'Faculty · Sociology', tags: ['User research', 'Ethics'], rating: 4.7, sessions: 28, available: 'Fri', match: 84 },
+  { id: 'm5', name: 'Ava Mendes', initials: 'AM', avc: 'av-6', title: 'Brand Director · Patagonia', tags: ['Brand', 'Storytelling', 'DTC'], rating: 4.9, sessions: 52, available: 'Wed', match: 80 },
+  { id: 'm6', name: 'Rohit Banerjee', initials: 'RB', avc: 'av-1', title: 'Partner · 1517 Fund', tags: ['Pre-seed', 'Decks', 'Strategy'], rating: 4.6, sessions: 117, available: 'Next week', match: 78 },
+];
+
+const PROTOTYPES = [
+  { id: 'pr1', team: 'Cohere Labs', title: 'Cohere — drag-to-book calendar', author: 'You + 3', upvotes: 24, comments: 8, stage: 'Prototyping', color: '#FDE7CC' },
+  { id: 'pr2', team: 'Plate.', title: 'Plate. — student meal-share map', author: 'Sarah K. + 2', upvotes: 31, comments: 12, stage: 'Validation', color: '#D8EBC6' },
+  { id: 'pr3', team: 'Bricklane', title: 'Bricklane — campus thrift', author: 'Diego M. + 4', upvotes: 18, comments: 5, stage: 'Prototyping', color: '#CDDCEC' },
+  { id: 'pr4', team: 'Solace', title: 'Solace — peer mental health pods', author: 'Maya R. + 2', upvotes: 47, comments: 22, stage: 'Launch', color: '#E6D4E8' },
+  { id: 'pr5', team: 'Foldcraft', title: 'Foldcraft — origami furniture', author: 'Ken T. + 1', upvotes: 12, comments: 3, stage: 'Prototyping', color: '#F4D6D6' },
+  { id: 'pr6', team: 'Beanline', title: 'Beanline — micro-roastery delivery', author: 'Ava P. + 2', upvotes: 22, comments: 7, stage: 'Validation', color: '#E8DCC4' },
+];
+
+const LEADERBOARD = [
+  { rank: 1, team: 'Solace', xp: 8420, members: 3, badges: 14, change: 0 },
+  { rank: 2, team: 'Plate.', xp: 7980, members: 3, badges: 12, change: 1 },
+  { rank: 3, team: 'Bricklane', xp: 6210, members: 5, badges: 10, change: -1 },
+  { rank: 4, team: 'Beanline', xp: 4880, members: 3, badges: 9, change: 0 },
+  { rank: 5, team: 'Foldcraft', xp: 3920, members: 2, badges: 7, change: 2 },
+  { rank: 6, team: 'Currentwise', xp: 3110, members: 4, badges: 6, change: 0 },
+  { rank: 7, team: 'Cohere Labs', xp: 2840, members: 4, badges: 5, change: 3, me: true },
+  { rank: 8, team: 'Heliotrope', xp: 2540, members: 3, badges: 5, change: -2 },
+];
+
+const CUSTOMERS_SEED = [
+  { id: 'c1', name: 'MIT Sloan Student Council', contact: 'Emily Ross', date: 'May 8', value: 49, status: 'paid', feedback: 'Saves us hours every week. Wish it auto-synced with Slack.', rating: 5 },
+  { id: 'c2', name: 'Robotics Club', contact: 'Akin Patel', date: 'May 10', value: 49, status: 'paid', feedback: 'UI is clean. Recurring events were tricky to set up.', rating: 4 },
+  { id: 'c3', name: 'Sailing Team', contact: 'Lucy Werner', date: 'May 12', value: 49, status: 'paid', feedback: 'Best discovery of the semester. Going to recommend it.', rating: 5 },
+  { id: 'c4', name: 'Quiz Bowl Society', contact: 'Henrik V.', date: 'May 14', value: 49, status: 'paid', feedback: 'Worth every dollar. Add poll voting.', rating: 5 },
+  { id: 'c5', name: 'Debate Union', contact: 'Sara Chen', date: 'May 15', value: 49, status: 'trial', feedback: 'Trialing for 14 days. Looking promising.', rating: 4 },
+  { id: 'c6', name: 'A Capella Collective', contact: 'M. Okoye', date: 'May 16', value: 49, status: 'trial', feedback: 'Onboarding could be friendlier for non-tech members.', rating: 4 },
+];
+
+const BADGES = [
+  { id: 'b1', name: 'First Pitch', desc: 'Submit your first idea', tier: 'bronze', icon: 'Lightbulb', unlocked: true, date: 'Mar 4' },
+  { id: 'b2', name: 'Customer Cartographer', desc: 'Interview 5 customers', tier: 'silver', icon: 'Users', unlocked: true, date: 'Apr 12' },
+  { id: 'b3', name: 'Landing Page Live', desc: 'Publish a validation page', tier: 'silver', icon: 'Globe', unlocked: true, date: 'Apr 19' },
+  { id: 'b4', name: 'Prototype Pro', desc: 'Ship a working MVP', tier: 'gold', icon: 'Box', unlocked: true, date: 'May 2' },
+  { id: 'b5', name: 'Mentor Magnet', desc: 'Complete 3 office hours', tier: 'gold', icon: 'GradCap', unlocked: false },
+  { id: 'b6', name: 'First Dollar', desc: 'Earn your first revenue', tier: 'gold', icon: 'Money', unlocked: false },
+  { id: 'b7', name: 'Tenacity', desc: '10-day work streak', tier: 'silver', icon: 'Flame', unlocked: true, date: 'May 12' },
+  { id: 'b8', name: 'Demo Day Star', desc: 'Present at Demo Day', tier: 'navy', icon: 'Trophy', unlocked: false },
+];
+
+const TASKS_BY_STAGE = {
+  ideation: [
+    { id: 't1', title: 'Submit your initial idea pitch', due: 'Today', priority: 'high', done: false },
+    { id: 't2', title: 'Brainstorm 3 user problems', due: 'Tomorrow', priority: 'med', done: true },
+    { id: 't3', title: 'Pick your team co-founders', due: 'Fri', priority: 'med', done: false },
+  ],
+  validation: [
+    { id: 't1', title: 'Interview 5 potential customers by Friday', due: 'Fri', priority: 'high', done: false },
+    { id: 't2', title: 'Publish a landing page with email capture', due: 'Wed', priority: 'med', done: true },
+    { id: 't3', title: 'Map 3 direct competitors', due: 'Tomorrow', priority: 'med', done: false },
+    { id: 't4', title: 'Get faculty sign-off on validation report', due: 'Next Mon', priority: 'low', done: false },
+  ],
+  prototyping: [
+    { id: 't1', title: 'Build clickable Figma flow for booking', due: 'Today', priority: 'high', done: false },
+    { id: 't2', title: 'Set up Bubble database for events', due: 'Tomorrow', priority: 'med', done: true },
+    { id: 't3', title: 'Run 3 usability tests with student orgs', due: 'Fri', priority: 'med', done: false },
+  ],
+  incubation: [
+    { id: 't1', title: 'Complete Business Model Canvas with Dr. Park', due: 'Today', priority: 'high', done: false },
+    { id: 't2', title: 'Draft 12-month financial projection', due: 'Wed', priority: 'med', done: false },
+    { id: 't3', title: 'Submit legal checklist (incorporation pathway)', due: 'Fri', priority: 'med', done: true },
+  ],
+  launch: [
+    { id: 't1', title: 'Onboard customer #5 and gather feedback', due: 'Today', priority: 'high', done: false },
+    { id: 't2', title: 'Finalize pitch deck for Demo Day', due: 'Wed', priority: 'high', done: false },
+    { id: 't3', title: 'Set up Stripe Connect for payouts', due: 'Tomorrow', priority: 'med', done: true },
+  ],
+};
+
+const NOTIFICATIONS = [
+  { id:'n1', kind:'review', who:'Dr. Elena Park', text:'left feedback on your Idea v2', time:'12m', unread: true },
+  { id:'n2', kind:'team', who:'Priya Shah', text:'invited you to a working session', time:'1h', unread: true },
+  { id:'n3', kind:'badge', who:'Cohere Labs', text:'unlocked "Tenacity" badge', time:'3h', unread: true },
+  { id:'n4', kind:'system', who:'Calendar', text:'Workshop "Pricing 101" starts in 2 days', time:'5h', unread: false },
+];
+
+const PROJECT_CONTEXT = { TEAM, MENTORS, PROTOTYPES, LEADERBOARD, CUSTOMERS_SEED, BADGES, TASKS_BY_STAGE, NOTIFICATIONS, STAGES, NAV_STUDENT, NAV_MENTOR, NAV_ADMIN };
+
+// ─────────────────────────────────────────────────────────────────────────
+// Sub-components
+// ─────────────────────────────────────────────────────────────────────────
+function Crest() {
+  return (
+    <span className="crest">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3l8 4v6c0 4-3.5 7.5-8 8-4.5-.5-8-4-8-8V7z" />
+        <path d="M9 11l2.5 2.5L15 9" />
+      </svg>
+    </span>
+  );
+}
+
+function Wordmark() {
+  return (
+    <div className="wordmark">
+      <Crest />
+      <span>StartupLaunch<span style={{color:'var(--orange-500)'}}>.</span></span>
+    </div>
+  );
+}
+
+function StageTrack({ currentIdx, completedIdx, onJump }) {
+  return (
+    <div className="stage-track">
+      {STAGES.map((s, i) => {
+        const done = i <= completedIdx;
+        const current = i === currentIdx;
+        const Ic = I[s.icon];
+        return (
+          <div key={s.key} className={`stage ${done ? 'done' : ''} ${current ? 'current' : ''}`} onClick={() => onJump && onJump(i)} style={{cursor: onJump ? 'pointer' : 'default'}}>
+            <div className="node"><Ic size={20} /></div>
+            <div className="sub">Stage {i+1}</div>
+            <div className="label">{s.label}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Pill({ children, tone, dot }) {
+  return <span className={`pill ${tone || ''}`}>{dot && <span className="dot"/>}{children}</span>;
+}
+
+function Avatar({ name, initials, avc = 'av-1', size = '' }) {
+  return <span className={`avatar ${size} ${avc}`} title={name}>{initials}</span>;
+}
+
+function BadgeCard({ b }) {
+  const Ic = I[b.icon] || I.Star;
+  return (
+    <div className={`badge-card ${b.unlocked ? '' : 'locked'}`}>
+      <div className={`badge-coin ${b.tier}`}><Ic size={26}/></div>
+      <div style={{fontWeight:600, fontSize:13}}>{b.name}</div>
+      <div className="muted" style={{fontSize:11.5}}>{b.desc}</div>
+      {b.unlocked ? <div className="num" style={{fontSize:10, color:'var(--text-mute)'}}>Earned {b.date}</div> :
+        <div className="num" style={{fontSize:10, color:'var(--text-mute)'}}>Locked</div>}
+    </div>
+  );
+}
+
+// Export to window for cross-file access
+Object.assign(window, {
+  Icon, I, ToastProvider, useToast, Celebrate,
+  STAGES, NAV_STUDENT, NAV_MENTOR, NAV_ADMIN, TEAM, MENTORS, PROTOTYPES,
+  LEADERBOARD, CUSTOMERS_SEED, BADGES, TASKS_BY_STAGE, NOTIFICATIONS,
+  Crest, Wordmark, StageTrack, Pill, Avatar, BadgeCard,
+});
+
+
+/* ═══════════════ landing.jsx ═══════════════ */
+// landing.jsx — Marketing landing page for StartupLaunch
+
+function LandingPage({ onEnter }) {
+  return (
+    <div style={{minHeight:'100vh', background: 'var(--paper)', position:'relative', zIndex:1}}>
+      {/* Top nav */}
+      <nav style={{padding: '20px 48px', display:'flex', alignItems:'center', gap: 32, borderBottom:'1px solid var(--rule-2)', position:'sticky', top: 0, background:'var(--paper)', zIndex: 50}}>
+        <Wordmark/>
+        <div className="row" style={{gap: 24, fontSize: 13.5, color:'var(--text-dim)'}}>
+          <span style={{cursor:'pointer'}}>For students</span>
+          <span style={{cursor:'pointer'}}>For mentors</span>
+          <span style={{cursor:'pointer'}}>For programs</span>
+          <span style={{cursor:'pointer'}}>Stories</span>
+          <span style={{cursor:'pointer'}}>Pricing</span>
+        </div>
+        <div className="spacer"/>
+        <button className="btn ghost" onClick={onEnter}>Sign in</button>
+        <button className="btn primary" onClick={onEnter}>Start your idea</button>
+      </nav>
+
+      {/* Hero */}
+      <section style={{maxWidth: 1240, margin: '0 auto', padding: '64px 48px 80px', display:'grid', gridTemplateColumns:'1.1fr .9fr', gap: 56, alignItems:'center'}}>
+        <div>
+          <div className="row" style={{gap: 8, marginBottom: 16}}>
+            <span className="stamp" style={{transform:'rotate(-4deg)'}}>Cohort SP26 · Now open</span>
+          </div>
+          <h1 style={{fontSize: 72, lineHeight: 1.02, letterSpacing:'-0.025em', fontWeight:500, margin: 0}}>
+            From classroom <br/>idea to <span style={{position:'relative', display:'inline-block'}}>
+              first sale<span style={{color:'var(--orange-500)'}}>.</span>
+              <svg viewBox="0 0 200 12" preserveAspectRatio="none" style={{position:'absolute', left:0, right:0, bottom:-4, width:'100%', height: 10}}>
+                <path d="M2 8 Q 50 2 100 6 T 198 4" stroke="var(--orange-500)" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+              </svg>
+            </span>
+          </h1>
+          <p style={{fontSize: 18, color:'var(--text-dim)', maxWidth: 520, margin: '24px 0 32px', lineHeight: 1.5}}>
+            The end-to-end platform for university student entrepreneurs. Five guided stages, faculty mentors, and a $50K marketplace — used by <b style={{color:'var(--text)'}}>14 universities</b> and 1,800 student teams.
+          </p>
+          <div className="row" style={{gap: 12}}>
+            <button className="btn accent lg" onClick={onEnter}>Start your idea<I.ArrowRight size={16}/></button>
+            <button className="btn lg">Watch the tour · 2 min</button>
+          </div>
+          <div className="row" style={{gap: 24, marginTop: 40, color:'var(--text-mute)', fontSize: 12.5}}>
+            <div className="row" style={{gap: 6}}><I.Check size={14} style={{color:'var(--leaf)'}}/>Free for students</div>
+            <div className="row" style={{gap: 6}}><I.Check size={14} style={{color:'var(--leaf)'}}/>WCAG 2.1 AA</div>
+            <div className="row" style={{gap: 6}}><I.Check size={14} style={{color:'var(--leaf)'}}/>Canvas / Moodle ready</div>
+          </div>
+        </div>
+
+        {/* Hero illustration: stage track + floating cards */}
+        <HeroIllustration onEnter={onEnter}/>
+      </section>
+
+      {/* Trust strip */}
+      <section style={{borderTop:'1px solid var(--rule-2)', borderBottom:'1px solid var(--rule-2)', background: 'var(--paper-2)'}}>
+        <div style={{maxWidth: 1240, margin:'0 auto', padding:'24px 48px', display:'flex', alignItems:'center', gap: 48, flexWrap:'wrap'}}>
+          <div className="eyebrow" style={{minWidth: 140}}>Used at</div>
+          {['MIT Sloan', 'Stanford GSB', 'Wharton', 'INSEAD', 'IIT Bombay', 'LSE', 'Oxford Saïd'].map(u => (
+            <div key={u} style={{fontFamily:'var(--display)', fontSize: 18, color:'var(--text-dim)'}}>{u}</div>
+          ))}
+        </div>
+      </section>
+
+      {/* 5 stages */}
+      <section style={{maxWidth: 1240, margin: '0 auto', padding: '80px 48px'}}>
+        <div className="row between" style={{alignItems:'baseline', marginBottom: 32}}>
+          <div>
+            <div className="kicker">The journey</div>
+            <h2 style={{fontSize: 44, lineHeight: 1.1, marginTop: 6}}>Five stages, no whiteboarding.</h2>
+          </div>
+          <p className="muted" style={{maxWidth: 380, fontSize: 14}}>Each stage has its own toolkit — interview templates, MVP builders, mentor sessions — so students know exactly what to do next.</p>
+        </div>
+
+        <div style={{display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap: 16}}>
+          {[
+            { n: 1, title: 'Ideation', desc: 'Brainstorm pain. Submit your first pitch.', ic: 'Lightbulb' },
+            { n: 2, title: 'Validation', desc: 'Customer interviews, landing tests, surveys.', ic: 'Compass' },
+            { n: 3, title: 'Prototyping', desc: 'No-code MVP or physical prototype build.', ic: 'Box' },
+            { n: 4, title: 'Incubation', desc: 'Mentorship, business model, financial plan.', ic: 'GradCap' },
+            { n: 5, title: 'Launch & Sales', desc: 'First 10 customers, Stripe, pitch deck.', ic: 'Receipt' },
+          ].map((s, i) => {
+            const Ic = I[s.ic];
+            return (
+              <div key={s.n} className="card lift" style={{padding: 24, position:'relative'}}>
+                <div className="row between" style={{marginBottom: 16}}>
+                  <span style={{fontFamily:'var(--display)', fontSize: 32, color:'var(--orange-500)', lineHeight: 1}}>0{s.n}</span>
+                  <Ic size={22} style={{color: 'var(--navy-700)'}}/>
+                </div>
+                <div style={{fontFamily:'var(--display)', fontSize: 20, fontWeight: 500, marginBottom: 6}}>{s.title}</div>
+                <p style={{margin: 0, fontSize: 13, color:'var(--text-dim)', lineHeight: 1.5}}>{s.desc}</p>
+                {i < 4 && (
+                  <div style={{position:'absolute', right: -10, top: '50%', zIndex: 5}}>
+                    <I.ArrowRight size={16} style={{color: 'var(--orange-500)'}}/>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* For each role */}
+      <section style={{background: 'var(--paper-2)', borderTop:'1px solid var(--rule-2)', borderBottom:'1px solid var(--rule-2)'}}>
+        <div style={{maxWidth: 1240, margin: '0 auto', padding: '80px 48px'}}>
+          <div style={{textAlign:'center', marginBottom: 48}}>
+            <div className="kicker">For every role</div>
+            <h2 style={{fontSize: 44, lineHeight: 1.1, marginTop: 6, maxWidth: 680, marginInline:'auto'}}>One platform. Three perspectives.</h2>
+          </div>
+          <div className="grid grid-3" style={{gap: 24}}>
+            {[
+              { role: 'Students', tag: 'navy', desc: 'Guided journey from idea to sales. Team management, AI-assisted feedback, the works.', items: ['Personalized dashboard', 'Team chat + roles', 'Validation toolkit', 'No-code MVP launchers', 'Pitch deck builder', 'First-customer tracker'] },
+              { role: 'Mentors', tag: 'orange', desc: 'Faculty, alumni, and external operators. Office hours, queue-based reviews, approve-to-advance.', items: ['Review queue + video feedback', 'Auto-scheduled office hours', 'Stage transition approvals', 'Cohort-wide visibility'] },
+              { role: 'Admins', tag: 'maroon', desc: 'Program coordinators get cohort-level analytics, mentor management, and LMS integration.', items: ['Real-time funnel analytics', 'Mentor roster + assignment', 'Resource library CMS', 'Canvas / Moodle sync', 'Revenue + impact reports'] },
+            ].map(r => (
+              <div key={r.role} className="card" style={{padding: 28}}>
+                <Pill tone={r.tag}>For {r.role.toLowerCase()}</Pill>
+                <div style={{fontFamily:'var(--display)', fontSize: 28, marginTop: 12, fontWeight:500}}>{r.role}</div>
+                <p style={{fontSize: 13.5, color:'var(--text-dim)', margin: '6px 0 20px', lineHeight: 1.55}}>{r.desc}</p>
+                <ul style={{listStyle:'none', padding: 0, margin: 0, display:'flex', flexDirection:'column', gap: 10}}>
+                  {r.items.map(it => (
+                    <li key={it} className="row" style={{gap: 8, fontSize: 13.5, color: 'var(--text)'}}>
+                      <I.Check size={14} style={{color:'var(--leaf)', flex:'none'}}/>
+                      {it}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Quote / proof */}
+      <section style={{maxWidth: 1240, margin: '0 auto', padding: '80px 48px', display:'grid', gridTemplateColumns:'1fr 1fr', gap: 56, alignItems:'center'}}>
+        <div>
+          <div className="kicker">Why it works</div>
+          <h2 style={{fontSize: 44, lineHeight: 1.1, marginTop: 6}}>Students with mentor accountability ship 3.4× more.</h2>
+          <p className="muted" style={{fontSize: 15, lineHeight: 1.55, margin: '20px 0', maxWidth: 520}}>StartupLaunch's structured stages and mentor-approval gates turn vague "I have an idea" energy into customers, revenue, and credit. 22% of cohort SP25 raised follow-on capital within 6 months.</p>
+          <div className="grid grid-3" style={{gap: 20, marginTop: 32}}>
+            {[
+              { v: '1,847', l: 'student founders' },
+              { v: '$2.4M', l: 'revenue generated' },
+              { v: '94%', l: 'completion rate' },
+            ].map(s => (
+              <div key={s.l}>
+                <div style={{fontFamily:'var(--display)', fontSize: 38, color:'var(--navy-800)', fontWeight: 500, lineHeight: 1}}>{s.v}</div>
+                <div className="muted" style={{fontSize: 12, marginTop: 4}}>{s.l}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="card" style={{padding: 36, background: 'linear-gradient(160deg, var(--navy-900), var(--navy-700))', color:'#fff', borderColor: 'transparent', position:'relative', overflow:'hidden'}}>
+          <div style={{position:'absolute', top: -40, right: -40, width: 200, height: 200, borderRadius:'50%', background:'rgba(244,122,31,.15)'}}/>
+          <div style={{fontFamily:'var(--display)', fontSize: 84, lineHeight: 1, color:'rgba(255,255,255,.2)', fontStyle:'italic'}}>"</div>
+          <p style={{fontFamily:'var(--display)', fontSize: 22, lineHeight: 1.3, margin: '0 0 24px', fontWeight: 400}}>The honest version is: we wouldn't have made it past week 4 without the validation toolkit. We were about to build the wrong thing.</p>
+          <div className="row" style={{gap: 12, position:'relative'}}>
+            <Avatar initials="MR" avc="av-3" size="lg"/>
+            <div>
+              <div style={{fontWeight: 500}}>Maya Roussel</div>
+              <div style={{fontSize: 12.5, color:'rgba(255,255,255,.6)'}}>Founder, Solace · raised $400K · MIT Sloan</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Final CTA */}
+      <section style={{maxWidth: 920, margin:'40px auto 80px', padding: '0 48px', textAlign:'center'}}>
+        <div className="card" style={{padding: 56, background:'var(--paper-3)', position:'relative', overflow:'hidden'}}>
+          <div className="kicker">Cohort SP26 · 12 days left to enroll</div>
+          <h2 style={{fontSize: 44, lineHeight: 1.1, marginTop: 8, marginBottom: 12}}>Your first customer is closer than you think.</h2>
+          <p className="muted" style={{maxWidth: 520, margin: '0 auto 28px'}}>Submit your idea today. A faculty reviewer responds within 24 hours.</p>
+          <div className="row" style={{justifyContent:'center', gap: 12}}>
+            <button className="btn accent lg" onClick={onEnter}>Start your idea<I.ArrowRight size={16}/></button>
+            <button className="btn lg">Talk to a program coordinator</button>
+          </div>
+        </div>
+      </section>
+
+      <footer style={{borderTop:'1px solid var(--rule-2)', padding:'32px 48px', display:'flex', alignItems:'center', justifyContent:'space-between', maxWidth: 1240, margin:'0 auto', flexWrap:'wrap', gap: 16}}>
+        <div className="row" style={{gap: 16}}>
+          <Wordmark/>
+          <span className="muted" style={{fontSize: 12}}>© 2026 · Student Entrepreneurship Hub</span>
+        </div>
+        <div className="row" style={{gap: 24, fontSize: 12.5, color:'var(--text-dim)'}}>
+          <span>Privacy</span><span>Accessibility</span><span>Status</span><span>Contact</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+function HeroIllustration({ onEnter }) {
+  return (
+    <div style={{position:'relative', aspectRatio:'4/4.4', maxHeight: 560}}>
+      {/* Backplate */}
+      <div style={{position:'absolute', inset: 0, borderRadius: 24, background:'linear-gradient(160deg, var(--navy-900), var(--navy-700))', overflow:'hidden'}}>
+        {/* Grid */}
+        <svg width="100%" height="100%" style={{position:'absolute', opacity: .12}}>
+          <defs>
+            <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+              <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#fff" strokeWidth="1"/>
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#grid)"/>
+        </svg>
+        {/* Glow */}
+        <div style={{position:'absolute', top: -40, right: -40, width: 240, height: 240, borderRadius:'50%', background:'radial-gradient(circle, rgba(244,122,31,.4), transparent 70%)'}}/>
+      </div>
+
+      {/* Stage track inside */}
+      <div style={{position:'absolute', top: 40, left: 28, right: 28, padding: 28, background: 'rgba(255,255,255,.08)', borderRadius: 16, backdropFilter:'blur(10px)', border:'1px solid rgba(255,255,255,.12)'}}>
+        <div style={{color:'rgba(255,255,255,.6)', fontSize: 11, textTransform:'uppercase', letterSpacing:'.12em', fontWeight: 600, marginBottom: 16}}>Your journey</div>
+        <div style={{position:'relative'}}>
+          <div style={{position:'absolute', top: 18, left: 8, right: 8, height: 2, background: 'rgba(255,255,255,.15)'}}/>
+          <div style={{position:'absolute', top: 18, left: 8, width: '45%', height: 2, background: 'var(--orange-500)'}}/>
+          <div style={{display:'grid', gridTemplateColumns:'repeat(5, 1fr)'}}>
+            {STAGES.map((s, i) => {
+              const done = i < 2;
+              const current = i === 2;
+              const Ic = I[s.icon];
+              return (
+                <div key={s.key} style={{display:'flex', flexDirection:'column', alignItems:'center', gap: 8, position:'relative'}}>
+                  <div style={{width: 36, height: 36, borderRadius:'50%', background: done ? 'rgba(255,255,255,.95)' : current ? 'var(--orange-500)' : 'rgba(255,255,255,.1)', border: '2px solid ' + (done ? 'rgba(255,255,255,.95)' : current ? 'var(--orange-500)' : 'rgba(255,255,255,.15)'), display:'flex', alignItems:'center', justifyContent:'center', color: done ? 'var(--navy-900)' : '#fff', zIndex: 1, boxShadow: current ? '0 0 0 6px rgba(244,122,31,.25)' : 'none'}}>
+                    {done ? <I.Check size={16}/> : <Ic size={14}/>}
+                  </div>
+                  <div style={{fontSize: 9, color:'rgba(255,255,255,.6)', letterSpacing:'.06em', textTransform:'uppercase'}}>{s.sub}</div>
+                  <div style={{fontSize: 11, color: current ? '#fff' : 'rgba(255,255,255,.65)', fontWeight: current ? 600 : 400, textAlign:'center'}}>{s.label}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Floating cards */}
+      <div style={{position:'absolute', bottom: 28, left: 28, right: 28, display:'grid', gridTemplateColumns:'1fr 1fr', gap: 14}}>
+        <div className="card" style={{padding: 16, background:'#fff', color:'var(--text)', borderColor:'transparent', boxShadow:'0 20px 40px -20px rgba(0,0,0,.5)'}}>
+          <div className="row" style={{gap: 8, marginBottom: 8}}>
+            <I.Mic size={14} style={{color:'var(--orange-500)'}}/>
+            <span className="eyebrow">Customer interview</span>
+          </div>
+          <div style={{fontSize: 12.5, lineHeight: 1.4, fontStyle:'italic', color:'var(--text-dim)'}}>"Would pay $5/mo if it auto-syncs Slack." — Emily R.</div>
+          <Pill tone="green" dot style={{marginTop: 8}}>Paid intent</Pill>
+        </div>
+        <div className="card" style={{padding: 16, background:'#fff', color:'var(--text)', borderColor:'transparent', boxShadow:'0 20px 40px -20px rgba(0,0,0,.5)'}}>
+          <div className="row" style={{gap: 8, marginBottom: 8}}>
+            <I.Money size={14} style={{color:'var(--leaf)'}}/>
+            <span className="eyebrow">First customer</span>
+          </div>
+          <div style={{display:'flex', alignItems:'baseline', gap: 6}}>
+            <span style={{fontFamily:'var(--display)', fontSize: 28, fontWeight:500}}>6</span>
+            <span style={{color:'var(--text-mute)', fontSize: 14}}>/ 10</span>
+          </div>
+          <div style={{display:'flex', gap: 3, marginTop: 8}}>
+            {Array.from({length:10}, (_, i) => (
+              <div key={i} style={{flex:1, height: 8, borderRadius: 2, background: i < 6 ? 'var(--orange-500)' : 'var(--rule)'}}/>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Top floating chip */}
+      <div style={{position:'absolute', top: -16, right: 36, background:'#fff', boxShadow:'0 20px 40px -20px rgba(0,0,0,.4)', borderRadius: 999, padding:'8px 14px', display:'flex', alignItems:'center', gap: 6, fontSize: 12, fontWeight: 500, color:'var(--text)'}}>
+        <I.Flame size={14} style={{color:'#F0511C'}}/>
+        <span className="num">12</span>-day streak
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { LandingPage });
+
+
+/* ═══════════════ roles.jsx ═══════════════ */
+// roles.jsx — Mentor and Admin views, plus the Landing page
+
+// ─────────────────────────────────────────────────────────────────────────
+// MENTOR VIEW
+// ─────────────────────────────────────────────────────────────────────────
+function MentorView({ subscreen, setSubscreen }) {
+  if (subscreen === 'mentor-teams') return <MentorTeams/>;
+  if (subscreen === 'mentor-reviews') return <MentorReviews/>;
+  if (subscreen === 'mentor-calendar') return <MentorCalendar/>;
+  return <MentorDashboard goto={setSubscreen}/>;
+}
+
+function MentorDashboard({ goto }) {
+  const teams = [
+    { name: 'Cohere Labs', stage: 'Validation', members: 4, next: 'Pricing review · Thu', alert: 'review pending', tag: 'orange' },
+    { name: 'Plate.', stage: 'Validation', members: 3, next: 'No upcoming', alert: 'on track', tag: 'green' },
+    { name: 'Solace', stage: 'Launch', members: 3, next: 'Demo Day prep · Sat', alert: 'on track', tag: 'green' },
+    { name: 'Beanline', stage: 'Validation', members: 3, next: 'Office hour · Mon', alert: 'idle 9 days', tag: 'gold' },
+  ];
+  return (
+    <div className="content">
+      <div className="row between">
+        <div>
+          <div className="kicker">Good morning, Dr. Park</div>
+          <h1>4 teams. 2 awaiting review.</h1>
+          <p className="muted" style={{maxWidth: 540, marginTop: 6}}>Your weekly snapshot. Reviewing this week unblocks teams' stage transitions.</p>
+        </div>
+        <div className="row" style={{gap: 8}}>
+          <button className="btn"><I.Cal size={14}/>Manage hours</button>
+          <button className="btn primary" onClick={() => goto('mentor-reviews')}><I.Paper size={14}/>Open review queue</button>
+        </div>
+      </div>
+
+      <div className="grid grid-4" style={{gap: 12}}>
+        {[
+          { l: 'Teams assigned', v: 4, ic: 'Users' },
+          { l: 'Pending reviews', v: 2, ic: 'Paper', orange: true },
+          { l: 'Hours this term', v: 28, ic: 'Clock' },
+          { l: 'Avg response', v: '14h', ic: 'Send' },
+        ].map(s => {
+          const Ic = I[s.ic];
+          return (
+            <div key={s.l} className="card">
+              <div className="card-b" style={{padding:'16px var(--pad)'}}>
+                <div className="row between">
+                  <span className="eyebrow">{s.l}</span>
+                  <Ic size={14} style={{color: s.orange ? 'var(--orange-500)' : 'var(--text-mute)'}}/>
+                </div>
+                <div className="num" style={{fontFamily:'var(--display)', fontSize: 28, marginTop: 4, color: s.orange ? 'var(--orange-600)' : 'var(--text)'}}>{s.v}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="grid" style={{gridTemplateColumns: '1.4fr 1fr', gap: 24}}>
+        <div className="card">
+          <div className="card-h">
+            <h3>My teams</h3>
+            <div className="spacer"/>
+            <button className="btn sm ghost" onClick={() => goto('mentor-teams')}>View all <I.ArrowRight size={12}/></button>
+          </div>
+          <div className="card-b" style={{padding: 0}}>
+            {teams.map((t, i) => (
+              <div key={t.name} style={{display:'grid', gridTemplateColumns:'1.4fr 100px 1.4fr auto', gap: 16, padding:'14px var(--pad)', borderBottom: i < 3 ? '1px solid var(--rule-2)' : 0, alignItems:'center'}}>
+                <div>
+                  <div style={{fontWeight: 500}}>{t.name}</div>
+                  <div className="muted" style={{fontSize: 11.5}}>{t.members} members</div>
+                </div>
+                <Pill>{t.stage}</Pill>
+                <div>
+                  <div style={{fontSize: 12.5}}>{t.next}</div>
+                  <div className="muted" style={{fontSize: 11}}>next session</div>
+                </div>
+                <div className="row" style={{gap: 8}}>
+                  <Pill tone={t.tag === 'orange' ? 'orange' : t.tag === 'gold' ? 'gold' : 'green'} dot>{t.alert}</Pill>
+                  <button className="btn sm">Open</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-h">
+            <h3>This week</h3>
+            <span className="muted">3 sessions · 90 minutes</span>
+          </div>
+          <div className="card-b" style={{padding: 0}}>
+            {[
+              { day: 'TUE', date: '20', time: '4:30 PM · 30m', who: 'Cohere Labs', topic: 'Pricing model review', dotColor: 'var(--orange-500)' },
+              { day: 'THU', date: '22', time: '11:00 AM · 30m', who: 'Plate.', topic: 'Interview synthesis', dotColor: 'var(--leaf)' },
+              { day: 'FRI', date: '23', time: '3:00 PM · 30m', who: 'Solace', topic: 'Pitch deck dry run', dotColor: 'var(--navy-700)' },
+            ].map((s, i) => (
+              <div key={i} style={{display:'flex', gap: 12, padding:'14px var(--pad)', borderBottom: i < 2 ? '1px solid var(--rule-2)' : 0, alignItems:'center'}}>
+                <div style={{width: 44, height: 44, borderRadius: 8, background:'var(--paper-2)', border:'1px solid var(--border)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center'}}>
+                  <div style={{fontSize:9, fontWeight:700, color:'var(--text-mute)'}}>{s.day}</div>
+                  <div style={{fontFamily:'var(--display)', fontSize: 16, lineHeight: 1}}>{s.date}</div>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:500, fontSize: 13}}>{s.who} · {s.topic}</div>
+                  <div className="muted" style={{fontSize: 11.5}}>{s.time}</div>
+                </div>
+                <span className="dot" style={{width: 6, height: 6, borderRadius: '50%', background: s.dotColor}}/>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-h">
+          <h3>Recent submissions awaiting your review</h3>
+          <div className="spacer"/>
+          <Pill tone="orange">2 pending</Pill>
+        </div>
+        <div className="card-b" style={{padding: 0}}>
+          {[
+            { team: 'Cohere Labs', what: 'Idea v2 — refined audience to MIT/Harvard cultural clubs', age: '12h', long: 'Cohere is a drag-and-drop scheduling app for student organizations. We narrowed our wedge from "all student orgs" to cultural/academic clubs at MIT/Harvard/BU after 6 interviews. The core insight: officer turnover every spring breaks every existing tool — that\'s our defensible wedge.' },
+            { team: 'Beanline', what: 'Validation report — survey results from 38 coffee drinkers', age: '2d' },
+          ].map((s, i) => (
+            <div key={i} style={{padding: 'var(--pad)', borderBottom: i < 1 ? '1px solid var(--rule-2)' : 0}}>
+              <div className="row between" style={{marginBottom: 6}}>
+                <div className="row" style={{gap: 10}}>
+                  <Pill>{s.team}</Pill>
+                  <div style={{fontWeight: 500}}>{s.what}</div>
+                </div>
+                <div className="muted num" style={{fontSize: 11.5}}>submitted {s.age} ago</div>
+              </div>
+              {s.long && <p className="muted" style={{margin: '8px 0 12px', fontSize: 12.5}}>{s.long}</p>}
+              <div className="row" style={{gap: 8}}>
+                <button className="btn sm">Open submission</button>
+                <button className="btn sm">Leave video feedback</button>
+                <button className="btn sm primary"><I.Check size={12}/>Approve & advance</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MentorTeams() {
+  return (
+    <div className="content">
+      <div>
+        <div className="kicker">Mentor portal</div>
+        <h1>My teams</h1>
+      </div>
+      <div className="grid grid-2">
+        {[
+          { name: 'Cohere Labs', stage: 'Validation', xp: 2840, members: 4, lastActive: '2h ago', tagline: 'Smart scheduling for student orgs', color: '#FFE3CD' },
+          { name: 'Plate.', stage: 'Validation', xp: 7980, members: 3, lastActive: '1d ago', tagline: 'Student meal-share map', color: '#D8EBC6' },
+          { name: 'Solace', stage: 'Launch', xp: 8420, members: 3, lastActive: '4h ago', tagline: 'Peer mental health pods', color: '#E6D4E8' },
+          { name: 'Beanline', stage: 'Validation', xp: 4880, members: 3, lastActive: '9d ago', tagline: 'Micro-roastery delivery', color: '#E8DCC4', stale: true },
+        ].map(t => (
+          <div key={t.name} className="card lift">
+            <div style={{height: 80, background: t.color, borderRadius: 'var(--card-r) var(--card-r) 0 0', padding: 16, display:'flex', flexDirection:'column', justifyContent:'space-between'}}>
+              <Pill tone="outline">{t.stage}</Pill>
+              <div style={{fontFamily:'var(--display)', fontSize: 22, color:'var(--navy-900)'}}>{t.name}</div>
+            </div>
+            <div className="card-b">
+              <div className="muted" style={{fontSize: 12.5, marginBottom: 12}}>{t.tagline}</div>
+              <div className="row between">
+                <div>
+                  <div className="num" style={{fontSize: 18, fontFamily:'var(--display)'}}>{t.xp.toLocaleString()}</div>
+                  <div className="muted" style={{fontSize: 10, textTransform:'uppercase'}}>XP</div>
+                </div>
+                <div>
+                  <div className="num" style={{fontSize: 18, fontFamily:'var(--display)'}}>{t.members}</div>
+                  <div className="muted" style={{fontSize: 10, textTransform:'uppercase'}}>Members</div>
+                </div>
+                <div>
+                  <div className="num" style={{fontSize: 13, color: t.stale ? 'var(--maroon)' : 'var(--text)'}}>{t.lastActive}</div>
+                  <div className="muted" style={{fontSize: 10, textTransform:'uppercase'}}>Active</div>
+                </div>
+                <button className="btn sm primary">Open</button>
+              </div>
+              {t.stale && <Pill tone="maroon" style={{marginTop: 10}}>Hasn't logged work — consider a check-in</Pill>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MentorReviews() {
+  const [tab, setTab] = React.useState('pending');
+  return (
+    <div className="content">
+      <div className="row between">
+        <div>
+          <div className="kicker">Mentor portal</div>
+          <h1>Reviews</h1>
+        </div>
+        <div className="row" style={{gap: 8}}>
+          <Pill tone="orange">2 pending</Pill>
+          <Pill tone="green">14 completed</Pill>
+        </div>
+      </div>
+      <div className="tabs">
+        {[{k:'pending', l:'Pending (2)'}, {k:'completed', l:'Completed (14)'}].map(t => (
+          <div key={t.k} className={`tab ${tab===t.k ? 'on':''}`} onClick={() => setTab(t.k)}>{t.l}</div>
+        ))}
+      </div>
+
+      <div className="card" style={{padding: 0}}>
+        <div className="grid" style={{gridTemplateColumns: '1.2fr 1.4fr', gap: 0, minHeight: 600}}>
+          <div style={{borderRight: '1px solid var(--border)'}}>
+            {(tab === 'pending' ? [
+              { team: 'Cohere Labs', kind: 'Idea v2', age: '12h', new: true, snippet: 'Drag-and-drop scheduling for student orgs…' },
+              { team: 'Beanline', kind: 'Validation report', age: '2d', new: true, snippet: '38 survey responses synthesized…' },
+            ] : [
+              { team: 'Solace', kind: 'Launch readiness', age: '4d', snippet: 'Reviewed and approved for Stage 5.' },
+              { team: 'Plate.', kind: 'Idea v1', age: '6d', snippet: 'Approved with suggestions on TAM…' },
+              { team: 'Cohere Labs', kind: 'Idea v1', age: '12d', snippet: 'Strong problem framing. Sharpen wedge…' },
+            ]).map((r, i, arr) => (
+              <div key={i} style={{padding:'16px var(--pad)', borderBottom: i < arr.length-1 ? '1px solid var(--rule-2)' : 0, background: i === 0 ? 'var(--orange-50)' : 'transparent', cursor:'pointer'}}>
+                <div className="row between" style={{marginBottom: 4}}>
+                  <div className="row" style={{gap: 8}}>
+                    <div style={{fontWeight:500, fontSize: 14}}>{r.team}</div>
+                    {r.new && <span className="dot" style={{width:6, height:6, borderRadius:'50%', background:'var(--orange-500)'}}/>}
+                  </div>
+                  <span className="muted num" style={{fontSize: 11.5}}>{r.age} ago</span>
+                </div>
+                <div style={{fontSize: 12.5, fontWeight: 500, marginBottom: 4}}>{r.kind}</div>
+                <div className="muted" style={{fontSize: 12, overflow:'hidden', textOverflow:'ellipsis', display:'-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient:'vertical'}}>{r.snippet}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Review pane */}
+          <div style={{padding: 24, display:'flex', flexDirection:'column', gap: 16}}>
+            <div>
+              <Pill>Cohere Labs</Pill>
+              <h2 style={{fontSize: 24, marginTop: 8}}>Idea v2 — refined audience</h2>
+              <div className="muted" style={{fontSize: 12.5}}>Submitted 12h ago by Anaya Kapoor (CEO)</div>
+            </div>
+            <div style={{padding: 16, background: 'var(--paper-2)', borderRadius: 10, borderLeft: '3px solid var(--orange-500)'}}>
+              <div className="eyebrow" style={{marginBottom: 6}}>What changed since v1</div>
+              <p style={{margin: 0, fontSize: 13}}>Narrowed wedge from "all student orgs" to cultural & academic clubs at MIT, Harvard, BU. Added officer-turnover as core defensibility. Quantified pain at 4–6 hours/week based on 6 interviews.</p>
+            </div>
+
+            <div className="field">
+              <label className="label">Your feedback</label>
+              <textarea className="textarea" rows={4} defaultValue="Excellent revision. The wedge is sharp now and the officer turnover insight is genuinely defensible — Doodle/Calendly can't bolt this on without an identity layer.&#10;&#10;Two questions before approval:&#10;1. Have you talked to anyone at Harvard or BU yet, or just MIT?&#10;2. What's your plan when officers graduate and the new ones don't pay?"/>
+            </div>
+            <div className="row between">
+              <div className="row" style={{gap: 8}}>
+                <button className="btn"><I.Mic size={14}/>Record video instead</button>
+                <button className="btn"><I.File size={14}/>Attach resource</button>
+              </div>
+              <div className="row" style={{gap: 8}}>
+                <button className="btn">Request revisions</button>
+                <button className="btn primary"><I.Check size={14}/>Approve & advance</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MentorCalendar() {
+  return (
+    <div className="content">
+      <div className="row between">
+        <div>
+          <div className="kicker">Office hours</div>
+          <h1>Your weekly availability</h1>
+        </div>
+        <button className="btn primary"><I.Plus size={14}/>Add open slot</button>
+      </div>
+
+      <div className="card">
+        <div className="card-h">
+          <h3>Week of May 18</h3>
+          <div className="spacer"/>
+          <button className="btn sm ghost">← Prev</button>
+          <button className="btn sm ghost">Next →</button>
+        </div>
+        <div className="card-b" style={{padding: 0}}>
+          <div style={{display:'grid', gridTemplateColumns:'60px repeat(5, 1fr)', borderBottom: '1px solid var(--border)'}}>
+            <div/>
+            {['Mon 18', 'Tue 19', 'Wed 20', 'Thu 21', 'Fri 22'].map(d => (
+              <div key={d} style={{padding:'12px 8px', textAlign:'center', fontSize: 12, fontWeight: 500, color: 'var(--text)', borderLeft: '1px solid var(--border)'}}>{d}</div>
+            ))}
+          </div>
+          {['9 AM', '10 AM', '11 AM', '12 PM', '1 PM', '2 PM', '3 PM', '4 PM'].map((time, ti) => (
+            <div key={time} style={{display:'grid', gridTemplateColumns:'60px repeat(5, 1fr)', borderBottom: ti < 7 ? '1px solid var(--rule-2)' : 0, minHeight: 56}}>
+              <div style={{padding: 8, fontSize: 11, color:'var(--text-mute)', fontFamily:'var(--mono)'}}>{time}</div>
+              {[0,1,2,3,4].map(d => {
+                // sprinkle events
+                const events = {
+                  '0-1': { title: 'Plate.', sub: 'Synthesis', color: 'green' },
+                  '2-3': { title: 'Cohere', sub: 'Pricing', color: 'orange' },
+                  '3-2': { title: 'Open slot', open: true },
+                  '4-3': { title: 'Solace', sub: 'Pitch dry run', color: 'navy' },
+                  '1-2': { title: 'Open slot', open: true },
+                  '4-1': { title: 'Open slot', open: true },
+                };
+                const ev = events[`${d}-${ti}`];
+                if (!ev) return <div key={d} style={{borderLeft: '1px solid var(--rule-2)'}}/>;
+                if (ev.open) {
+                  return (
+                    <div key={d} style={{borderLeft: '1px solid var(--rule-2)', padding: 6}}>
+                      <div style={{background:'repeating-linear-gradient(45deg, var(--paper-2), var(--paper-2) 6px, var(--rule-2) 6px, var(--rule-2) 7px)', border: '1.5px dashed var(--border)', borderRadius: 6, height:'100%', padding: 6, fontSize: 10, color:'var(--text-mute)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'}}>Open · book</div>
+                    </div>
+                  );
+                }
+                const bg = ev.color === 'green' ? 'rgba(47,107,59,.12)' : ev.color === 'orange' ? 'var(--orange-50)' : 'var(--navy-50)';
+                const fg = ev.color === 'green' ? 'var(--leaf)' : ev.color === 'orange' ? 'var(--orange-700)' : 'var(--navy-700)';
+                return (
+                  <div key={d} style={{borderLeft: '1px solid var(--rule-2)', padding: 6}}>
+                    <div style={{background: bg, color: fg, borderRadius: 6, padding: '6px 8px', fontSize: 11.5, height:'100%', display:'flex', flexDirection:'column', justifyContent:'space-between'}}>
+                      <div style={{fontWeight: 600}}>{ev.title}</div>
+                      <div style={{opacity: .8, fontSize: 10}}>{ev.sub}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ADMIN VIEW
+// ─────────────────────────────────────────────────────────────────────────
+function AdminView({ subscreen }) {
+  if (subscreen === 'admin-teams') return <AdminTeams/>;
+  if (subscreen === 'admin-mentors') return <AdminMentors/>;
+  if (subscreen === 'admin-resources') return <AdminResources/>;
+  if (subscreen === 'admin-settings') return <AdminSettings/>;
+  return <AdminDashboard/>;
+}
+
+function AdminDashboard() {
+  return (
+    <div className="content">
+      <div className="row between">
+        <div>
+          <div className="kicker">Cohort SP26 · 38 active teams</div>
+          <h1>Program overview</h1>
+        </div>
+        <div className="row" style={{gap: 8}}>
+          <button className="btn"><I.File size={14}/>Export report</button>
+          <button className="btn primary"><I.Settings size={14}/>Program settings</button>
+        </div>
+      </div>
+
+      {/* KPI strip */}
+      <div className="grid grid-4" style={{gap: 12}}>
+        {[
+          { l: 'Active teams', v: 38, d: '+4 vs last cohort', up: true },
+          { l: 'Active students', v: 142, d: '94% retention', up: true },
+          { l: 'Stage transitions / wk', v: 11, d: '+27% week-over-week', up: true },
+          { l: 'Revenue generated', v: '$8,420', d: '$1,420 this month', up: true },
+        ].map(s => (
+          <div key={s.l} className="card">
+            <div className="card-b stat" style={{padding: 20}}>
+              <div className="eyebrow">{s.l}</div>
+              <div className="v num">{typeof s.v === 'string' ? s.v : s.v.toLocaleString()}</div>
+              <div className={`delta ${s.up ? 'up' : 'down'}`}>{s.d}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid" style={{gridTemplateColumns: '1.4fr 1fr', gap: 24}}>
+        {/* Stage funnel */}
+        <div className="card">
+          <div className="card-h">
+            <h3>Cohort funnel</h3>
+            <span className="muted">Teams by stage · this term</span>
+          </div>
+          <div className="card-b">
+            {[
+              { label: 'Ideation', teams: 12, pct: 100, color: '#0E1F44' },
+              { label: 'Validation', teams: 14, pct: 84, color: '#16305C' },
+              { label: 'Prototyping', teams: 8, pct: 56, color: '#1F4380' },
+              { label: 'Incubation', teams: 3, pct: 28, color: '#355FA8' },
+              { label: 'Launch & Sales', teams: 1, pct: 12, color: '#F47A1F' },
+            ].map((s, i) => (
+              <div key={s.label} style={{marginTop: i ? 8 : 0}}>
+                <div className="row between" style={{marginBottom: 4}}>
+                  <span style={{fontSize: 12.5, fontWeight: 500}}>{s.label}</span>
+                  <span className="num muted" style={{fontSize: 12}}>{s.teams} teams</span>
+                </div>
+                <div style={{background:'var(--rule-2)', borderRadius: 4, height: 28, position:'relative', overflow:'hidden'}}>
+                  <div style={{position:'absolute', inset: 0, width: `${s.pct}%`, background: s.color, borderRadius: 4, transition:'width .8s', display:'flex', alignItems:'center', padding:'0 10px', color:'#fff', fontSize: 11, fontWeight: 500}}>
+                    {s.pct}%
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div className="divider" style={{margin: '20px 0 12px'}}/>
+            <div className="row between">
+              <div>
+                <div className="eyebrow">Avg time per stage</div>
+                <div style={{fontFamily:'var(--display)', fontSize: 22, marginTop: 4}}>3.4 weeks</div>
+              </div>
+              <div>
+                <div className="eyebrow">Drop-off rate</div>
+                <div style={{fontFamily:'var(--display)', fontSize: 22, marginTop: 4, color:'var(--maroon)'}}>12%</div>
+              </div>
+              <div>
+                <div className="eyebrow">Estimated runtime</div>
+                <div style={{fontFamily:'var(--display)', fontSize: 22, marginTop: 4}}>17 wks</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Activity over time */}
+        <div className="card">
+          <div className="card-h">
+            <h3>Weekly activity</h3>
+            <span className="muted">Last 12 weeks</span>
+          </div>
+          <div className="card-b">
+            <ActivityChart/>
+            <div className="divider" style={{margin: '14px 0'}}/>
+            <div className="row between">
+              <div>
+                <div className="eyebrow">Tasks completed (12w)</div>
+                <div style={{fontFamily:'var(--display)', fontSize: 22, marginTop: 4}}>2,148</div>
+              </div>
+              <div>
+                <div className="eyebrow">Customer interviews (12w)</div>
+                <div style={{fontFamily:'var(--display)', fontSize: 22, marginTop: 4}}>347</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid" style={{gridTemplateColumns:'1fr 1fr', gap: 24}}>
+        <div className="card">
+          <div className="card-h"><h3>Teams needing attention</h3><span className="muted">Idle ≥ 7 days</span></div>
+          <div className="card-b" style={{padding: 0}}>
+            {[
+              { name: 'Heliotrope', idle: 9, stage: 'Validation', mentor: 'Dr. Park' },
+              { name: 'Beanline', idle: 9, stage: 'Validation', mentor: 'Dr. Park' },
+              { name: 'Currentwise', idle: 11, stage: 'Ideation', mentor: 'T. Vega' },
+              { name: 'Northfield', idle: 14, stage: 'Ideation', mentor: 'unassigned' },
+            ].map((t, i) => (
+              <div key={t.name} style={{display:'grid', gridTemplateColumns:'1.2fr 1fr 1fr auto', padding:'12px var(--pad)', borderBottom: i < 3 ? '1px solid var(--rule-2)' : 0, alignItems:'center', gap: 12}}>
+                <div style={{fontWeight: 500, fontSize: 13}}>{t.name}</div>
+                <Pill tone={t.idle > 10 ? 'maroon' : 'gold'} dot>idle {t.idle}d</Pill>
+                <span className="muted" style={{fontSize: 12.5}}>{t.stage} · {t.mentor}</span>
+                <button className="btn sm">Nudge</button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-h"><h3>Top performers</h3><span className="muted">By XP this term</span></div>
+          <div className="card-b" style={{padding: 0}}>
+            {LEADERBOARD.slice(0, 5).map((t, i) => (
+              <div key={t.team} style={{display:'grid', gridTemplateColumns:'30px 1.4fr 1fr auto', padding:'12px var(--pad)', borderBottom: i < 4 ? '1px solid var(--rule-2)' : 0, alignItems:'center', gap: 12}}>
+                <div className="num" style={{fontFamily:'var(--display)', fontSize: 16, color: i === 0 ? 'var(--gold)' : 'var(--text-mute)'}}>#{t.rank}</div>
+                <div style={{fontWeight: 500, fontSize: 13}}>{t.team}</div>
+                <span className="num" style={{fontSize: 12.5, color: 'var(--text-dim)'}}>{t.xp.toLocaleString()} XP</span>
+                <span className="num" style={{fontSize: 12, color:'var(--gold)'}}><I.Trophy size={11}/> {t.badges}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActivityChart() {
+  // Simple SVG line chart
+  const data = [42, 38, 51, 64, 58, 72, 89, 95, 112, 128, 134, 148];
+  const max = 160;
+  const w = 320, h = 120;
+  const path = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * w;
+    const y = h - (v / max) * h;
+    return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+  }).join(' ');
+  const fillPath = path + ` L ${w} ${h} L 0 ${h} Z`;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h} style={{overflow:'visible'}}>
+      <defs>
+        <linearGradient id="actfill" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stopColor="var(--orange-500)" stopOpacity=".25"/>
+          <stop offset="1" stopColor="var(--orange-500)" stopOpacity="0"/>
+        </linearGradient>
+      </defs>
+      {[0, 0.25, 0.5, 0.75, 1].map(t => (
+        <line key={t} x1="0" x2={w} y1={h*t} y2={h*t} stroke="var(--rule-2)" strokeDasharray="2 4"/>
+      ))}
+      <path d={fillPath} fill="url(#actfill)"/>
+      <path d={path} fill="none" stroke="var(--orange-500)" strokeWidth="2"/>
+      {data.map((v, i) => {
+        const x = (i / (data.length - 1)) * w;
+        const y = h - (v / max) * h;
+        return <circle key={i} cx={x} cy={y} r="2.5" fill="var(--orange-500)" stroke="var(--surface-2)" strokeWidth="1.5"/>;
+      })}
+    </svg>
+  );
+}
+
+function AdminTeams() {
+  const data = [
+    { name: 'Solace', stage: 'Launch', members: 3, mentor: 'T. Vega', revenue: '$2,840', activity: 4, lastActive: '2h' },
+    { name: 'Plate.', stage: 'Validation', members: 3, mentor: 'Dr. Park', revenue: '$0', activity: 3, lastActive: '4h' },
+    { name: 'Bricklane', stage: 'Prototyping', members: 5, mentor: 'A. Mendes', revenue: '$0', activity: 3, lastActive: '6h' },
+    { name: 'Cohere Labs', stage: 'Validation', members: 4, mentor: 'Dr. Park', revenue: '$294', activity: 4, lastActive: '2h' },
+    { name: 'Beanline', stage: 'Validation', members: 3, mentor: 'Dr. Park', revenue: '$0', activity: 0, lastActive: '9d' },
+    { name: 'Foldcraft', stage: 'Prototyping', members: 2, mentor: 'H. Otieno', revenue: '$120', activity: 2, lastActive: '1d' },
+    { name: 'Currentwise', stage: 'Ideation', members: 4, mentor: 'T. Vega', revenue: '$0', activity: 1, lastActive: '11d' },
+    { name: 'Heliotrope', stage: 'Validation', members: 3, mentor: 'Dr. Park', revenue: '$0', activity: 1, lastActive: '9d' },
+    { name: 'Northfield', stage: 'Ideation', members: 2, mentor: '—', revenue: '$0', activity: 0, lastActive: '14d', alert: 'unassigned' },
+  ];
+  return (
+    <div className="content">
+      <div className="row between">
+        <div>
+          <div className="kicker">Cohort SP26</div>
+          <h1>All teams</h1>
+        </div>
+        <div className="row" style={{gap: 8}}>
+          <input className="input" placeholder="Search teams…" style={{width: 220}}/>
+          <button className="btn"><I.Filter size={14}/>Filter</button>
+          <button className="btn primary"><I.Plus size={14}/>Add team</button>
+        </div>
+      </div>
+      <div className="card">
+        <table className="table">
+          <thead>
+            <tr><th>Team</th><th>Stage</th><th>Members</th><th>Mentor</th><th>Activity (7d)</th><th>Revenue</th><th>Last seen</th><th></th></tr>
+          </thead>
+          <tbody>
+            {data.map(t => (
+              <tr key={t.name}>
+                <td style={{fontWeight: 500}}>{t.name}</td>
+                <td><Pill>{t.stage}</Pill></td>
+                <td className="num">{t.members}</td>
+                <td>{t.mentor === '—' ? <Pill tone="maroon">Unassigned</Pill> : t.mentor}</td>
+                <td>
+                  <div className="row" style={{gap: 2}}>
+                    {Array.from({length: 5}, (_, i) => (
+                      <div key={i} style={{width: 16, height: 12, borderRadius: 2, background: i < t.activity ? 'var(--leaf)' : 'var(--rule-2)'}}/>
+                    ))}
+                  </div>
+                </td>
+                <td className="num">{t.revenue}</td>
+                <td className="muted num" style={{fontSize: 12.5, color: t.lastActive.includes('d') && parseInt(t.lastActive) > 7 ? 'var(--maroon)' : undefined}}>{t.lastActive} ago</td>
+                <td style={{textAlign:'right'}}><button className="btn sm">Open</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function AdminMentors() {
+  return (
+    <div className="content">
+      <div className="row between">
+        <div><div className="kicker">Admin · Mentors</div><h1>Mentor roster</h1></div>
+        <button className="btn primary"><I.Plus size={14}/>Invite mentor</button>
+      </div>
+      <div className="grid grid-3">
+        {MENTORS.map(m => (
+          <div key={m.id} className="card">
+            <div className="card-b">
+              <div className="row" style={{gap: 12, marginBottom: 12}}>
+                <Avatar name={m.name} initials={m.initials} avc={m.avc} size="lg"/>
+                <div style={{flex:1, minWidth: 0}}>
+                  <div style={{fontWeight: 600, fontSize: 14}}>{m.name}</div>
+                  <div className="muted" style={{fontSize: 12, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{m.title}</div>
+                </div>
+              </div>
+              <div className="grid grid-3" style={{gap: 8, marginBottom: 12}}>
+                <div><div className="eyebrow">TEAMS</div><div className="num" style={{fontWeight:500}}>{Math.floor(Math.random()*4)+1}</div></div>
+                <div><div className="eyebrow">HOURS</div><div className="num" style={{fontWeight:500}}>{Math.floor(m.sessions/2)}</div></div>
+                <div><div className="eyebrow">RATING</div><div className="num" style={{fontWeight:500}}>{m.rating}</div></div>
+              </div>
+              <div className="row" style={{gap: 6, flexWrap: 'wrap'}}>
+                {m.tags.slice(0,2).map(t => <Pill key={t}>{t}</Pill>)}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdminResources() {
+  const cats = [
+    { name: 'Lean startup essentials', count: 24, color: 'navy' },
+    { name: 'Customer discovery', count: 12, color: 'orange' },
+    { name: 'Business model canvas', count: 8, color: 'gold' },
+    { name: 'Legal & incorporation', count: 14, color: 'maroon' },
+    { name: 'Pitch & fundraising', count: 18, color: 'leaf' },
+    { name: 'Physical products', count: 11, color: 'navy' },
+  ];
+  return (
+    <div className="content">
+      <div className="row between">
+        <div><div className="kicker">Admin · Resources</div><h1>Library</h1></div>
+        <button className="btn primary"><I.Plus size={14}/>Add resource</button>
+      </div>
+      <div className="grid grid-3">
+        {cats.map(c => (
+          <div key={c.name} className="card lift" style={{padding: 24, cursor:'pointer'}}>
+            <I.Paper size={20} style={{color:'var(--orange-500)', marginBottom: 12}}/>
+            <div style={{fontFamily:'var(--display)', fontSize: 22, fontWeight:500}}>{c.name}</div>
+            <div className="muted" style={{fontSize: 12, marginTop: 4}}>{c.count} resources</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdminSettings() {
+  return (
+    <div className="content">
+      <div><div className="kicker">Admin</div><h1>Program settings</h1></div>
+      <div className="grid" style={{gridTemplateColumns:'1fr 320px', gap: 24}}>
+        <div className="card">
+          <div className="card-h"><h3>Cohort SP26</h3></div>
+          <div className="card-b">
+            <div className="field"><label className="label">Cohort name</label><input className="input" defaultValue="Spring 2026"/></div>
+            <div className="grid grid-2">
+              <div className="field"><label className="label">Start date</label><input className="input" defaultValue="2026-02-01"/></div>
+              <div className="field"><label className="label">Demo day</label><input className="input" defaultValue="2026-06-14"/></div>
+            </div>
+            <div className="field">
+              <label className="label">Max teams</label>
+              <input className="input" defaultValue="50"/>
+              <div className="help">Currently 38 active.</div>
+            </div>
+            <div className="field">
+              <label className="label">Stage thresholds</label>
+              <div className="help">Set how many tasks a team must complete to request advancement to the next stage.</div>
+              {STAGES.map(s => (
+                <div key={s.key} className="row" style={{gap: 12, marginTop: 8}}>
+                  <div style={{minWidth: 130, fontSize: 13, fontWeight: 500}}>{s.label}</div>
+                  <input className="input" defaultValue="80%" style={{maxWidth: 100}}/>
+                  <span className="muted" style={{fontSize: 12}}>of tasks complete</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="col" style={{gap: 16}}>
+          <div className="card">
+            <div className="card-h"><h3>Integrations</h3></div>
+            <div className="card-b" style={{padding: 0}}>
+              {['Canvas LMS', 'Moodle', 'Stripe Connect', 'Slack', 'Zoom', 'Google Workspace'].map((it, i) => (
+                <div key={it} className="row between" style={{padding:'10px var(--pad)', borderBottom: i < 5 ? '1px solid var(--rule-2)' : 0}}>
+                  <span style={{fontSize:13}}>{it}</span>
+                  <Pill tone={i < 3 ? 'green' : 'outline'} dot>{i < 3 ? 'On' : 'Off'}</Pill>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="card" style={{background:'var(--paper-2)', borderStyle:'dashed'}}>
+            <div className="card-b">
+              <div className="eyebrow" style={{marginBottom: 6}}>Pro tip</div>
+              <p style={{fontSize:12.5, margin:0, color:'var(--text-dim)'}}>Connect Canvas LMS to auto-sync enrolled students and award credit on stage transitions.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { MentorView, AdminView });
+
+/* ═══════════════ student.jsx ═══════════════ */
+// student.jsx — All student-facing screens for StartupLaunch
+// Imports global helpers: I, STAGES, TEAM, MENTORS, PROTOTYPES, LEADERBOARD, etc.
+
+// ─────────────────────────────────────────────────────────────────────────
+// DASHBOARD
+// ─────────────────────────────────────────────────────────────────────────
+function StudentDashboard({ stage, stageIdx, tasks, setTasks, populated, gamification, onStageComplete, goto }) {
+  const toast = useToast();
+  const stageInfo = STAGES[stageIdx];
+  const completed = tasks.filter(t => t.done).length;
+  const stageProgress = Math.round((completed / tasks.length) * 100);
+
+  const toggleTask = (id) => {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
+  };
+
+  return (
+    <div className="content">
+      {/* Top greeting + key chips */}
+      <div className="row between">
+        <div>
+          <div className="kicker">Good evening, AK</div>
+          <h1>You're <span style={{color:'var(--orange-600)'}}>{stageInfo.label}</span>. Keep going.</h1>
+          <div className="muted" style={{marginTop: 6}}>
+            Cohere Labs · {TEAM.members.length} members · founded Feb 2026
+          </div>
+        </div>
+        {gamification !== 'light' && (
+          <div className="row" style={{gap: 8}}>
+            <div className="chip flame"><I.Flame className="ic" size={14}/><b className="num">{TEAM.streak}</b> day streak</div>
+            <div className="chip"><I.Star className="ic" size={14}/><b className="num">{TEAM.xp.toLocaleString()}</b> XP</div>
+            <div className="chip"><I.Trophy className="ic" size={14}/>Rank <b className="num">#{TEAM.rank}</b></div>
+          </div>
+        )}
+      </div>
+
+      {/* 5-stage track */}
+      <div className="card">
+        <div className="card-h">
+          <h3>Journey to first sales</h3>
+          <span className="muted">{stageIdx} of {STAGES.length} stages complete · estimated 8 weeks remaining</span>
+          <div className="spacer"/>
+          <Pill tone="orange" dot>Currently {stageInfo.label}</Pill>
+        </div>
+        <div className="card-b">
+          <StageTrack currentIdx={stageIdx} completedIdx={stageIdx - 1} />
+          <div style={{marginTop: 22, display:'grid', gridTemplateColumns: '1fr auto', gap: 16, alignItems:'center'}}>
+            <div>
+              <div className="row" style={{justifyContent:'space-between', marginBottom: 6}}>
+                <div className="muted" style={{fontSize: 12}}>This stage</div>
+                <div className="num" style={{fontSize: 12, fontWeight: 500}}>{completed} / {tasks.length} tasks · {stageProgress}%</div>
+              </div>
+              <div className="lp accent"><i style={{width: `${stageProgress}%`}}/></div>
+            </div>
+            <button className="btn primary" onClick={() => {
+              if (stageProgress >= 80) onStageComplete();
+              else toast(`Finish ${tasks.length - completed} more tasks to complete this stage`);
+            }}>
+              {stageProgress >= 80 ? 'Submit for mentor review' : 'Submit for review'} <I.ArrowRight size={14}/>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Three column row: Tasks · Activity · Up next */}
+      <div className="grid grid-3" style={{gridTemplateColumns: '1.2fr .9fr .9fr'}}>
+        {/* Tasks */}
+        <div className="card">
+          <div className="card-h">
+            <h3>Tasks this week</h3>
+            <div className="spacer"/>
+            <button className="btn sm ghost"><I.Plus size={12}/>Add</button>
+          </div>
+          <div className="card-b" style={{padding: 0}}>
+            {populated ? tasks.map((t) => (
+              <div key={t.id} style={{display:'flex', alignItems:'flex-start', gap:12, padding:'12px var(--pad)', borderBottom:'1px solid var(--rule-2)'}}>
+                <input type="checkbox" className="check" checked={t.done} onChange={() => toggleTask(t.id)} style={{marginTop: 2}}/>
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{fontWeight: 500, textDecoration: t.done ? 'line-through' : 'none', color: t.done ? 'var(--text-mute)' : 'var(--text)'}}>{t.title}</div>
+                  <div className="row" style={{gap: 6, marginTop: 4}}>
+                    <Pill tone={t.priority === 'high' ? 'orange' : t.priority === 'med' ? 'gold' : 'outline'}>
+                      {t.priority === 'high' ? 'High' : t.priority === 'med' ? 'Medium' : 'Low'}
+                    </Pill>
+                    <span className="muted" style={{fontSize: 11.5, whiteSpace: 'nowrap'}}><I.Clock size={11} style={{verticalAlign:-1}}/> Due {t.due}</span>
+                  </div>
+                </div>
+              </div>
+            )) : (
+              <div style={{padding:'40px 24px', textAlign:'center'}}>
+                <I.Lightbulb size={28} style={{color: 'var(--text-mute)', marginBottom: 8}}/>
+                <div style={{fontWeight:500}}>No tasks yet</div>
+                <div className="muted" style={{fontSize:12, marginBottom: 12}}>Submit your first idea to see suggested tasks.</div>
+                <button className="btn accent sm" onClick={() => goto('idea')}>Submit idea</button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Mentor feedback */}
+        <div className="card">
+          <div className="card-h">
+            <h3>Mentor activity</h3>
+            <div className="spacer"/>
+            <Pill tone="orange">2 new</Pill>
+          </div>
+          <div className="card-b" style={{padding: 0}}>
+            {populated ? (
+              <>
+                <div style={{padding:'14px var(--pad)', borderBottom:'1px solid var(--rule-2)'}}>
+                  <div className="row" style={{marginBottom: 6}}>
+                    <Avatar name="Elena Park" initials="EP" avc="av-2"/>
+                    <div>
+                      <div style={{fontWeight:500, fontSize:13}}>Dr. Elena Park</div>
+                      <div className="muted" style={{fontSize:11}}>12 minutes ago · Idea review</div>
+                    </div>
+                  </div>
+                  <p style={{margin: '4px 0 8px', fontSize: 13, fontStyle: 'italic', color: 'var(--text-dim)'}}>"Strong problem framing. I'd sharpen 'student orgs' — which type? Cultural? Academic? Defining your wedge changes everything else."</p>
+                  <button className="btn sm">Reply</button>
+                </div>
+                <div style={{padding:'14px var(--pad)', borderBottom:'1px solid var(--rule-2)'}}>
+                  <div className="row" style={{marginBottom: 6}}>
+                    <Avatar name="Tomás Vega" initials="TV" avc="av-3"/>
+                    <div>
+                      <div style={{fontWeight:500, fontSize:13}}>Tomás Vega</div>
+                      <div className="muted" style={{fontSize:11}}>2 hours ago · Approved validation plan</div>
+                    </div>
+                  </div>
+                  <Pill tone="green" dot>Approved to move to Prototyping</Pill>
+                </div>
+                <div style={{padding:'12px var(--pad)'}}>
+                  <button className="btn ghost sm" onClick={() => goto('mentor')}>View all mentor activity <I.ArrowRight size={12}/></button>
+                </div>
+              </>
+            ) : (
+              <div style={{padding:'40px 24px', textAlign:'center'}}>
+                <I.GradCap size={28} style={{color: 'var(--text-mute)', marginBottom: 8}}/>
+                <div style={{fontWeight:500}}>No mentor yet</div>
+                <div className="muted" style={{fontSize:12, marginBottom: 12}}>Match with a mentor to unlock guidance.</div>
+                <button className="btn sm" onClick={() => goto('mentor')}>Find a mentor</button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Up next workshops */}
+        <div className="card">
+          <div className="card-h">
+            <h3>Up next</h3>
+          </div>
+          <div className="card-b" style={{padding: 0}}>
+            <div style={{padding:'14px var(--pad)', borderBottom:'1px solid var(--rule-2)'}}>
+              <div className="row" style={{gap:12}}>
+                <div style={{width: 44, height: 44, background:'var(--orange-50)', border:'1px solid var(--orange-100)', borderRadius:8, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flex:'none'}}>
+                  <div style={{fontSize: 9, fontWeight: 700, color:'var(--orange-700)', letterSpacing:'.05em'}}>MAY</div>
+                  <div style={{fontFamily:'var(--display)', fontSize: 18, lineHeight:1, color:'var(--text)'}}>21</div>
+                </div>
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{fontWeight:500, fontSize:13}}>Pricing 101 Workshop</div>
+                  <div className="muted" style={{fontSize:11.5}}>Thu · 6:00–7:30 PM · Bldg E62 · with Prof. Halpern</div>
+                </div>
+              </div>
+            </div>
+            <div style={{padding:'14px var(--pad)', borderBottom:'1px solid var(--rule-2)'}}>
+              <div className="row" style={{gap:12}}>
+                <div style={{width: 44, height: 44, background:'var(--navy-50)', border:'1px solid var(--navy-100)', borderRadius:8, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flex:'none'}}>
+                  <div style={{fontSize: 9, fontWeight: 700, color:'var(--navy-700)', letterSpacing:'.05em'}}>MAY</div>
+                  <div style={{fontFamily:'var(--display)', fontSize: 18, lineHeight:1, color:'var(--text)'}}>24</div>
+                </div>
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{fontWeight:500, fontSize:13}}>Office hours · Dr. Park</div>
+                  <div className="muted" style={{fontSize:11.5}}>Sun · 2:00 PM · Zoom · 30 min</div>
+                </div>
+              </div>
+            </div>
+            <div style={{padding:'14px var(--pad)'}}>
+              <div className="row" style={{gap:12}}>
+                <div style={{width: 44, height: 44, background:'rgba(107,31,42,.08)', border:'1px solid rgba(107,31,42,.18)', borderRadius:8, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flex:'none'}}>
+                  <div style={{fontSize: 9, fontWeight: 700, color:'var(--maroon)', letterSpacing:'.05em'}}>JUN</div>
+                  <div style={{fontFamily:'var(--display)', fontSize: 18, lineHeight:1, color:'var(--text)'}}>14</div>
+                </div>
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{fontWeight:500, fontSize:13}}>Demo Day · cohort SP26</div>
+                  <div className="muted" style={{fontSize:11.5}}>Sat · 1:00 PM · Kresge Auditorium</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom row: Team + Badges */}
+      <div className="grid grid-2" style={{gridTemplateColumns: '1fr 1.2fr'}}>
+        <div className="card">
+          <div className="card-h">
+            <h3>Your team</h3>
+            <div className="spacer"/>
+            <button className="btn sm ghost" onClick={() => goto('team')}>Manage <I.ArrowRight size={12}/></button>
+          </div>
+          <div className="card-b">
+            <div className="col" style={{gap: 12}}>
+              {TEAM.members.map(m => (
+                <div key={m.id} className="row" style={{gap: 12}}>
+                  <Avatar {...m}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight: 500, fontSize: 13.5}}>{m.name} {m.active && <span style={{color:'var(--leaf)', fontSize: 10, marginLeft: 4}}>● online</span>}</div>
+                    <div className="muted" style={{fontSize: 11.5}}>{m.role}</div>
+                  </div>
+                  <button className="btn sm ghost"><I.Send size={12}/></button>
+                </div>
+              ))}
+              <div className="divider"/>
+              <button className="btn ghost" style={{justifyContent:'flex-start'}}><I.Plus size={14}/>Invite member</button>
+            </div>
+          </div>
+        </div>
+
+        {gamification !== 'light' ? (
+          <div className="card">
+            <div className="card-h">
+              <h3>Achievements</h3>
+              <span className="muted">{BADGES.filter(b => b.unlocked).length} of {BADGES.length} earned</span>
+              <div className="spacer"/>
+              <button className="btn sm ghost">View all <I.ArrowRight size={12}/></button>
+            </div>
+            <div className="card-b">
+              <div className="grid grid-4" style={{gap: 10}}>
+                {BADGES.slice(0, 4).map(b => <BadgeCard key={b.id} b={b}/>)}
+              </div>
+              {gamification === 'heavy' && (
+                <>
+                  <div className="divider" style={{margin: '16px 0'}}/>
+                  <div className="row between">
+                    <div className="muted" style={{fontSize: 12}}>Next milestone</div>
+                    <span className="num" style={{fontSize: 12, fontWeight:500}}>2,840 / 3,500 XP</span>
+                  </div>
+                  <div className="lp accent" style={{marginTop: 6}}><i style={{width: '81%'}}/></div>
+                  <div className="muted" style={{fontSize: 11.5, marginTop: 8}}>660 XP to <b style={{color:'var(--orange-600)'}}>Validation Pro</b> badge</div>
+                </>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="card">
+            <div className="card-h"><h3>Quick resources</h3></div>
+            <div className="card-b" style={{padding: 0}}>
+              {['Customer interview script', 'Landing page kit', 'Competitor matrix template'].map((r, i) => (
+                <div key={i} style={{display:'flex', alignItems:'center', gap:12, padding:'12px var(--pad)', borderBottom: i < 2 ? '1px solid var(--rule-2)' : 0}}>
+                  <I.Paper size={16}/>
+                  <div style={{flex:1, fontSize: 13.5}}>{r}</div>
+                  <button className="btn sm ghost">Open</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// IDEA SUBMISSION
+// ─────────────────────────────────────────────────────────────────────────
+function IdeaSubmission({ populated, goto }) {
+  const toast = useToast();
+  const [form, setForm] = React.useState(populated ? {
+    name: "Cohere",
+    one: "Drag-and-drop scheduling for student organizations",
+    problem: "Student org leaders waste 4–6 hours a week on group scheduling. Doodle and When2meet are messy, don't sync with calendars, and have no permission model for rotating officers each year.",
+    audience: "Officers of student clubs at 4-year US universities (initial wedge: cultural & academic clubs at MIT, Harvard, BU). Estimated 8,400 clubs across these 3 campuses.",
+    solution: "A scheduling app built specifically for student orgs: shared calendars, role-based permissions that auto-rotate when officers change, attendance tracking, and Slack integration.",
+    uvp: "Built for student orgs, not generic teams. Auto-rotating permissions solve the #1 pain Doodle ignores: officer turnover every spring.",
+    industry: "tech-saas",
+  } : {
+    name: "", one: "", problem: "", audience: "", solution: "", uvp: "", industry: "",
+  });
+  const [aiOn, setAiOn] = React.useState(populated);
+  const [submitted, setSubmitted] = React.useState(false);
+
+  const fields = [
+    { k: 'problem', label: 'Problem statement', help: 'What pain are you solving? Be specific about who hurts and how badly.', rows: 3 },
+    { k: 'audience', label: 'Target audience', help: 'Who are your first 100 users? Narrow is better.', rows: 2 },
+    { k: 'solution', label: 'Proposed solution', help: 'How does your product/service address the pain?', rows: 3 },
+    { k: 'uvp', label: 'Unique value proposition', help: 'What makes you different from existing options?', rows: 2 },
+  ];
+
+  const wordCount = (s) => s.trim().split(/\s+/).filter(Boolean).length;
+  const totalWords = Object.values(form).reduce((a, v) => a + wordCount(String(v)), 0);
+  const clarityScore = Math.min(95, Math.max(0, Math.round(totalWords * 0.6 + (form.uvp ? 18 : 0) + (form.problem.length > 100 ? 12 : 0))));
+
+  if (submitted) {
+    return (
+      <div className="content">
+        <div className="card" style={{textAlign:'center', padding: 48, maxWidth: 560, margin: '40px auto'}}>
+          <div className="badge-coin gold" style={{width: 80, height: 80, margin: '0 auto 20px'}}>
+            <I.Check size={36}/>
+          </div>
+          <div className="kicker">Submitted for review</div>
+          <h1 style={{fontSize: 30, margin: '8px 0 12px'}}>Your idea is in the queue.</h1>
+          <p className="muted" style={{marginBottom: 24}}>Dr. Elena Park usually reviews within 24 hours. You'll get a notification when feedback is ready.</p>
+          <div className="row" style={{justifyContent:'center', gap: 8}}>
+            <button className="btn" onClick={() => setSubmitted(false)}>Edit submission</button>
+            <button className="btn primary" onClick={() => goto('dashboard')}>Back to dashboard</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="content">
+      <div>
+        <div className="kicker">Stage 1 · Ideation</div>
+        <h1>Submit your idea pitch</h1>
+        <p className="muted" style={{maxWidth: 640, marginTop: 6}}>Clear ideas get clearer feedback. Your faculty reviewer will read this; mentors and judges may see it later.</p>
+      </div>
+
+      <div className="grid" style={{gridTemplateColumns:'1fr 320px', gap: 24}}>
+        <div className="card">
+          <div className="card-h">
+            <h3>The pitch</h3>
+            <div className="spacer"/>
+            <span className="muted num" style={{fontSize: 12}}>Draft · saved 2s ago</span>
+          </div>
+          <div className="card-b">
+            <div className="grid grid-2">
+              <div className="field">
+                <label className="label">Idea name</label>
+                <input className="input" placeholder="e.g., Cohere" value={form.name} onChange={e => setForm({...form, name: e.target.value})}/>
+              </div>
+              <div className="field">
+                <label className="label">Industry</label>
+                <select className="select" value={form.industry} onChange={e => setForm({...form, industry: e.target.value})}>
+                  <option value="">Select…</option>
+                  <option value="tech-saas">Tech / SaaS</option>
+                  <option value="physical">Physical product</option>
+                  <option value="food">Food & beverage</option>
+                  <option value="services">Services</option>
+                  <option value="social">Social impact</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+            <div className="field">
+              <label className="label">One-line description</label>
+              <input className="input" placeholder="X for Y, that does Z" value={form.one} onChange={e => setForm({...form, one: e.target.value})}/>
+              <div className="help">If you can't say it in 12 words, dig deeper.</div>
+            </div>
+            {fields.map(f => (
+              <div className="field" key={f.k}>
+                <div className="row between" style={{alignItems:'baseline'}}>
+                  <label className="label">{f.label}</label>
+                  <span className="muted num" style={{fontSize: 11}}>{wordCount(form[f.k])} words</span>
+                </div>
+                <textarea className="textarea" rows={f.rows} value={form[f.k]} onChange={e => setForm({...form, [f.k]: e.target.value})} placeholder={f.help}/>
+                <div className="help">{f.help}</div>
+              </div>
+            ))}
+            <div className="divider" style={{margin: '20px 0'}}/>
+            <div className="row between">
+              <div className="row" style={{gap: 10}}>
+                <button className="btn ghost"><I.Paper size={14}/>Save draft</button>
+                <button className="btn ghost"><I.File size={14}/>Attach files</button>
+              </div>
+              <div className="row" style={{gap: 8}}>
+                <button className="btn">Cancel</button>
+                <button className="btn accent" onClick={() => setSubmitted(true)}>Submit for review <I.ArrowRight size={14}/></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar: AI feedback + reviewer info */}
+        <div className="col" style={{gap: 16}}>
+          <div className="card">
+            <div className="card-h">
+              <div className="row" style={{gap: 8}}>
+                <I.Sparkle size={16} style={{color:'var(--orange-500)'}}/>
+                <h3 style={{fontSize: 15}}>AI feedback</h3>
+              </div>
+              <div className="spacer"/>
+              <label className="row" style={{gap: 6, fontSize: 12, cursor:'pointer'}}>
+                <input type="checkbox" className="check" checked={aiOn} onChange={e => setAiOn(e.target.checked)}/>
+                On
+              </label>
+            </div>
+            {aiOn ? (
+              <div className="card-b">
+                <div className="row between" style={{marginBottom: 8}}>
+                  <div className="muted" style={{fontSize: 12}}>Clarity score</div>
+                  <div className="num" style={{fontWeight: 600, fontSize: 16}}>{clarityScore}<span style={{color:'var(--text-mute)', fontSize: 12}}>/100</span></div>
+                </div>
+                <div className="lp accent"><i style={{width: `${clarityScore}%`}}/></div>
+                <div className="divider" style={{margin: '14px 0'}}/>
+                <div className="col" style={{gap: 10}}>
+                  <div className="row" style={{alignItems:'flex-start', gap: 8}}>
+                    <I.Check size={14} style={{color:'var(--leaf)', marginTop: 2, flex:'none'}}/>
+                    <div style={{fontSize: 12.5}}>Problem is specific — quantifying 4–6 hours is strong.</div>
+                  </div>
+                  <div className="row" style={{alignItems:'flex-start', gap: 8}}>
+                    <I.Sparkle size={14} style={{color:'var(--orange-500)', marginTop: 2, flex:'none'}}/>
+                    <div style={{fontSize: 12.5}}>Audience is narrow & testable. Consider: which 3 clubs will you pilot first?</div>
+                  </div>
+                  <div className="row" style={{alignItems:'flex-start', gap: 8}}>
+                    <I.X size={14} style={{color:'var(--maroon)', marginTop: 2, flex:'none'}}/>
+                    <div style={{fontSize: 12.5}}>UVP overlaps with "solution". Try: <i>"The only scheduler that survives officer turnover."</i></div>
+                  </div>
+                </div>
+                <div className="divider" style={{margin: '14px 0'}}/>
+                <div className="muted" style={{fontSize: 11}}>Suggestions are private to you, never sent to your reviewer.</div>
+              </div>
+            ) : (
+              <div className="card-b">
+                <p className="muted" style={{fontSize: 12.5}}>Turn on AI feedback to get suggestions on clarity, market potential, and gaps as you type. Optional — fully private.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card-h"><h3 style={{fontSize: 15}}>Reviewer</h3></div>
+            <div className="card-b">
+              <div className="row" style={{gap: 12}}>
+                <Avatar name="Elena Park" initials="EP" avc="av-2" size="lg"/>
+                <div>
+                  <div style={{fontWeight:500}}>Dr. Elena Park</div>
+                  <div className="muted" style={{fontSize: 12}}>Faculty · Sloan School</div>
+                  <div className="row" style={{gap: 4, marginTop: 4}}>
+                    <Pill tone="green" dot>Available</Pill>
+                  </div>
+                </div>
+              </div>
+              <p className="muted" style={{fontSize: 12, marginTop: 12}}>Typically responds within 24 hours.</p>
+            </div>
+          </div>
+
+          <div className="card" style={{background:'var(--paper-2)', borderStyle:'dashed'}}>
+            <div className="card-b">
+              <div className="row" style={{gap: 8, marginBottom: 6}}>
+                <I.Lightbulb size={14} style={{color:'var(--orange-500)'}}/>
+                <b style={{fontSize: 13}}>Tip</b>
+              </div>
+              <p style={{fontSize: 12.5, color:'var(--text-dim)', margin: 0}}>Strong problem statements describe pain people <i>already pay to solve badly</i>. If users have a current workaround (spreadsheet, group chat, etc.), name it.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// TEAM
+// ─────────────────────────────────────────────────────────────────────────
+function TeamScreen() {
+  const [tab, setTab] = React.useState('overview');
+  return (
+    <div className="content">
+      <div className="row between">
+        <div>
+          <div className="kicker">{TEAM.tagline}</div>
+          <h1>{TEAM.name}</h1>
+        </div>
+        <div className="row" style={{gap: 8}}>
+          <button className="btn"><I.Send size={14}/>Invite</button>
+          <button className="btn primary"><I.Edit size={14}/>Edit roles</button>
+        </div>
+      </div>
+
+      <div className="tabs">
+        {['overview', 'chat', 'files', 'permissions'].map(t => (
+          <div key={t} className={`tab ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)} style={{textTransform:'capitalize'}}>{t}</div>
+        ))}
+      </div>
+
+      {tab === 'overview' && <TeamOverview/>}
+      {tab === 'chat' && <TeamChat/>}
+      {tab === 'files' && <TeamFiles/>}
+      {tab === 'permissions' && <TeamPermissions/>}
+    </div>
+  );
+}
+
+function TeamOverview() {
+  const roles = [
+    { role: 'CEO', m: TEAM.members[0], duties: 'Vision, fundraising, recruiting' },
+    { role: 'Product', m: TEAM.members[1], duties: 'Roadmap, user research' },
+    { role: 'Marketing', m: TEAM.members[2], duties: 'Growth, content, demos' },
+    { role: 'Design', m: TEAM.members[3], duties: 'UX, brand, prototype' },
+    { role: 'Finance', m: null, duties: 'Forecasting, runway, legal — open seat' },
+  ];
+  return (
+    <>
+      <div className="grid grid-3" style={{gridTemplateColumns:'2fr 1fr'}}>
+        <div className="card">
+          <div className="card-h"><h3>Roles & responsibilities</h3><div className="spacer"/><span className="muted">{TEAM.members.length} / 5 members</span></div>
+          <div className="card-b" style={{padding: 0}}>
+            {roles.map((r, i) => (
+              <div key={r.role} style={{display:'grid', gridTemplateColumns: '180px 1fr auto', gap: 16, padding:'14px var(--pad)', borderBottom: i < roles.length-1 ? '1px solid var(--rule-2)' : 0, alignItems:'center'}}>
+                <div className="row" style={{gap: 10}}>
+                  {r.m ? <Avatar {...r.m}/> : <span className="avatar" style={{background:'transparent', border:'1.5px dashed var(--border)', color:'var(--text-mute)'}}><I.Plus size={12}/></span>}
+                  <div>
+                    <div style={{fontWeight: 500, fontSize:13.5}}>{r.m ? r.m.name : 'Open seat'}</div>
+                    <div className="muted" style={{fontSize:11.5}}>{r.role}</div>
+                  </div>
+                </div>
+                <div className="muted" style={{fontSize: 12.5}}>{r.duties}</div>
+                <div className="row" style={{gap: 6}}>
+                  {r.m ? (
+                    <>
+                      <button className="btn sm ghost"><I.Send size={12}/></button>
+                      <button className="btn sm ghost"><I.Settings size={12}/></button>
+                    </>
+                  ) : <button className="btn sm accent"><I.Plus size={12}/>Invite</button>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-h"><h3>Team velocity</h3></div>
+          <div className="card-b">
+            <div className="stat" style={{padding: 0}}>
+              <div className="label-row"><div className="eyebrow">Tasks shipped this week</div></div>
+              <div className="v num">14<span className="delta up" style={{fontSize: 13, marginLeft: 8, fontWeight: 500}}>↑ 5</span></div>
+              <div className="muted" style={{fontSize: 12}}>vs 9 last week</div>
+            </div>
+            <div className="divider" style={{margin: '14px 0'}}/>
+            <div className="muted" style={{fontSize: 12, marginBottom: 6}}>Contribution by member</div>
+            {TEAM.members.map((m, i) => {
+              const pct = [44, 22, 18, 16][i];
+              return (
+                <div key={m.id} className="row" style={{gap: 8, marginTop: 8}}>
+                  <Avatar {...m} size="sm"/>
+                  <div style={{flex:1}}>
+                    <div className="lp"><i style={{width: `${pct}%`}}/></div>
+                  </div>
+                  <span className="num" style={{fontSize: 11.5, color:'var(--text-mute)', minWidth: 30, textAlign:'right'}}>{pct}%</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-h"><h3>Team activity</h3></div>
+        <div className="card-b" style={{padding: 0}}>
+          {[
+            {who: TEAM.members[1], what: 'pushed v2 of competitor matrix', when: '12m ago', icon: 'File'},
+            {who: TEAM.members[2], what: 'scheduled customer interview with MIT Sloan Council', when: '1h ago', icon: 'Cal'},
+            {who: TEAM.members[3], what: 'updated brand color palette (3 swatches)', when: '3h ago', icon: 'Edit'},
+            {who: TEAM.members[0], what: 'submitted Idea v2 to Dr. Park for review', when: '1d ago', icon: 'Send'},
+            {who: TEAM.members[1], what: 'completed interview script template', when: '2d ago', icon: 'Check'},
+          ].map((a, i) => {
+            const Ic = I[a.icon];
+            return (
+              <div key={i} style={{display:'flex', gap: 14, padding:'12px var(--pad)', borderBottom: i < 4 ? '1px solid var(--rule-2)' : 0, alignItems:'center'}}>
+                <Avatar {...a.who} size="sm"/>
+                <Ic size={14} style={{color:'var(--text-mute)'}}/>
+                <div style={{flex:1, fontSize: 13}}><b style={{fontWeight:500}}>{a.who.name}</b> {a.what}</div>
+                <span className="muted num" style={{fontSize: 11.5}}>{a.when}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function TeamChat() {
+  const [messages, setMessages] = React.useState([
+    { id: 1, who: TEAM.members[1], text: "Just finished the competitor matrix v2 — Doodle, Calendly, When2meet, and 2 newer ones (Cal.com, Zcal). Posted in files.", time: '10:42' },
+    { id: 2, who: TEAM.members[0], text: "Nice. Did Cal.com show up for student orgs in any reviews?", time: '10:44', me: true },
+    { id: 3, who: TEAM.members[1], text: "Not really — they're firmly B2B. We're the only one targeting the org-turnover problem. That's our wedge.", time: '10:45' },
+    { id: 4, who: TEAM.members[2], text: "🔥 booking Sloan Council interview for Thursday. Should I draft a pitch DM template for the other 4 clubs?", time: '11:02' },
+    { id: 5, who: TEAM.members[3], text: "Updating the prototype colors now — pulling navy/orange from the new brand sheet. Will share preview by EOD.", time: '11:18' },
+  ]);
+  const [draft, setDraft] = React.useState("");
+  const scrollRef = React.useRef(null);
+  React.useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
+  const send = () => {
+    if (!draft.trim()) return;
+    setMessages([...messages, { id: Date.now(), who: TEAM.members[0], text: draft, time: 'now', me: true }]);
+    setDraft("");
+  };
+  return (
+    <div className="card" style={{display:'flex', flexDirection:'column', height: 'calc(100vh - 280px)', minHeight: 480}}>
+      <div className="card-h">
+        <h3>#general</h3>
+        <span className="muted">4 members · pinned to top of feed</span>
+        <div className="spacer"/>
+        <div className="avatar-stack">
+          {TEAM.members.map(m => <Avatar {...m} size="sm" key={m.id}/>)}
+        </div>
+      </div>
+      <div ref={scrollRef} style={{flex: 1, overflowY:'auto', padding: 'var(--pad)', display:'flex', flexDirection:'column', gap: 12}}>
+        {messages.map(m => (
+          <div key={m.id} style={{display:'flex', flexDirection:'column', alignItems: m.me ? 'flex-end' : 'flex-start'}}>
+            <div className="row" style={{gap:8, alignItems:'flex-end', flexDirection: m.me ? 'row-reverse' : 'row'}}>
+              {!m.me && <Avatar {...m.who} size="sm"/>}
+              <div className={`bubble ${m.me ? 'me' : ''}`}>
+                {!m.me && <div className="who">{m.who.name} · {m.time}</div>}
+                {m.text}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{padding: '12px var(--pad)', borderTop: '1px solid var(--border)'}}>
+        <div className="row" style={{gap: 8}}>
+          <button className="btn ghost icon"><I.Plus size={14}/></button>
+          <input className="input" placeholder="Message #general…" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}/>
+          <button className="btn primary" onClick={send}><I.Send size={14}/>Send</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TeamFiles() {
+  const files = [
+    { name: 'Competitor matrix v2.xlsx', by: 'Priya Shah', size: '24 KB', when: '12m ago', kind: 'sheet' },
+    { name: 'Cohere — brand palette.fig', by: 'Jin Liu', size: '1.2 MB', when: '3h ago', kind: 'design' },
+    { name: 'Interview script — clubs.docx', by: 'Priya Shah', size: '18 KB', when: '2d ago', kind: 'doc' },
+    { name: 'Pitch v1 (draft).pdf', by: 'You', size: '410 KB', when: '4d ago', kind: 'pdf' },
+    { name: 'Landing page mockup.png', by: 'Jin Liu', size: '892 KB', when: '5d ago', kind: 'image' },
+  ];
+  const colors = { sheet:'#2F6B3B', design:'#7A2A9C', doc:'#1F4380', pdf:'#C45616', image:'#C28B2C' };
+  return (
+    <div className="card">
+      <div className="card-h">
+        <h3>Files</h3>
+        <span className="muted">5 files · 2.5 MB</span>
+        <div className="spacer"/>
+        <button className="btn sm"><I.Filter size={12}/>Filter</button>
+        <button className="btn sm primary"><I.Plus size={12}/>Upload</button>
+      </div>
+      <table className="table">
+        <thead><tr><th>Name</th><th>Owner</th><th>Size</th><th>Modified</th><th></th></tr></thead>
+        <tbody>
+          {files.map(f => (
+            <tr key={f.name}>
+              <td>
+                <div className="row" style={{gap: 10}}>
+                  <div style={{width:30, height:30, background:colors[f.kind] + '22', color:colors[f.kind], borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center'}}>
+                    <I.File size={14}/>
+                  </div>
+                  <span style={{fontWeight:500}}>{f.name}</span>
+                </div>
+              </td>
+              <td>{f.by}</td>
+              <td className="num">{f.size}</td>
+              <td className="muted">{f.when}</td>
+              <td style={{textAlign:'right'}}><button className="btn sm ghost">⋯</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TeamPermissions() {
+  const perms = [
+    { key: 'edit-idea', label: 'Edit idea submission', roles: { CEO: true, Product: true, Marketing: false, Design: false } },
+    { key: 'invite', label: 'Invite new members', roles: { CEO: true, Product: false, Marketing: false, Design: false } },
+    { key: 'spend', label: 'Approve spending', roles: { CEO: true, Product: false, Marketing: false, Design: false } },
+    { key: 'mentor', label: 'Schedule mentor sessions', roles: { CEO: true, Product: true, Marketing: true, Design: true } },
+    { key: 'publish', label: 'Publish landing pages', roles: { CEO: true, Product: true, Marketing: true, Design: false } },
+  ];
+  const roles = ['CEO', 'Product', 'Marketing', 'Design'];
+  return (
+    <div className="card">
+      <div className="card-h">
+        <h3>Permissions</h3>
+        <span className="muted">Permissions auto-transfer when officers change each semester</span>
+      </div>
+      <table className="table">
+        <thead><tr><th>Permission</th>{roles.map(r => <th key={r} style={{textAlign:'center'}}>{r}</th>)}</tr></thead>
+        <tbody>
+          {perms.map(p => (
+            <tr key={p.key}>
+              <td style={{fontWeight: 500}}>{p.label}</td>
+              {roles.map(r => (
+                <td key={r} style={{textAlign:'center'}}>
+                  {p.roles[r] ? <I.Check size={16} style={{color:'var(--leaf)'}}/> : <span className="muted">—</span>}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+Object.assign(window, { StudentDashboard, IdeaSubmission, TeamScreen });
+
+
+/* ═══════════════ student2.jsx ═══════════════ */
+// student2.jsx — More student screens: Validation, Prototype, Mentor, Customers, Pitch, Marketplace, Leaderboard
+
+// ─────────────────────────────────────────────────────────────────────────
+// VALIDATION TOOLKIT
+// ─────────────────────────────────────────────────────────────────────────
+function ValidationScreen({ populated }) {
+  const [tab, setTab] = React.useState('interviews');
+  return (
+    <div className="content">
+      <div className="row between">
+        <div>
+          <div className="kicker">Stage 2 · Validation</div>
+          <h1>Talk to humans. Test cheap. Repeat.</h1>
+          <p className="muted" style={{maxWidth: 640, marginTop: 6}}>Five tools to validate demand before you build. Most teams skip this stage — don't be most teams.</p>
+        </div>
+        <div className="row" style={{gap: 8}}>
+          <button className="btn"><I.Paper size={14}/>Export validation report</button>
+        </div>
+      </div>
+
+      {/* Validation progress strip */}
+      <div className="grid grid-4" style={{gap: 12}}>
+        {[
+          { k: 'Customer interviews', v: populated ? 6 : 0, goal: 10, color: 'orange', ic: 'Mic' },
+          { k: 'Survey responses', v: populated ? 47 : 0, goal: 50, color: 'navy', ic: 'Paper' },
+          { k: 'Landing signups', v: populated ? 218 : 0, goal: 100, color: 'leaf', ic: 'Globe' },
+          { k: 'Competitors mapped', v: populated ? 5 : 0, goal: 5, color: 'gold', ic: 'Compass' },
+        ].map(m => {
+          const Ic = I[m.ic];
+          const pct = Math.min(100, Math.round(m.v / m.goal * 100));
+          return (
+            <div key={m.k} className="card">
+              <div className="card-b">
+                <div className="row" style={{gap: 8, marginBottom: 8}}>
+                  <Ic size={14} style={{color:'var(--text-mute)'}}/>
+                  <span className="eyebrow">{m.k}</span>
+                </div>
+                <div className="num" style={{fontSize: 28, fontFamily:'var(--display)', fontWeight: 500}}>
+                  {m.v}<span style={{color:'var(--text-mute)', fontSize: 14}}> / {m.goal}</span>
+                </div>
+                <div className={`lp ${m.color === 'orange' ? 'accent' : m.color === 'leaf' ? 'leaf' : m.color === 'gold' ? 'gold' : ''}`} style={{marginTop: 8}}>
+                  <i style={{width: `${pct}%`}}/>
+                </div>
+                {pct >= 100 && <Pill tone="green" dot>Goal hit</Pill>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="tabs">
+        {[
+          {k: 'interviews', l: 'Interviews'},
+          {k: 'surveys', l: 'Surveys'},
+          {k: 'landing', l: 'Landing pages'},
+          {k: 'competitors', l: 'Competitor matrix'},
+        ].map(t => <div key={t.k} className={`tab ${tab === t.k ? 'on' : ''}`} onClick={() => setTab(t.k)}>{t.l}</div>)}
+      </div>
+
+      {tab === 'interviews' && <Interviews populated={populated}/>}
+      {tab === 'surveys' && <Surveys populated={populated}/>}
+      {tab === 'landing' && <LandingTab populated={populated}/>}
+      {tab === 'competitors' && <CompetitorMatrix populated={populated}/>}
+    </div>
+  );
+}
+
+function Interviews({ populated }) {
+  const interviews = populated ? [
+    { name: 'Emily Ross', club: 'Sloan Student Council', date: 'May 6', sentiment: 'positive', q: 'Would pay $5/mo if it auto-syncs Slack', tag: 'paid intent' },
+    { name: 'Akin Patel', club: 'Robotics Club', date: 'May 8', sentiment: 'positive', q: 'Spends 3-4h/week on scheduling', tag: 'pain confirmed' },
+    { name: 'Lucy Werner', club: 'Sailing Team', date: 'May 9', sentiment: 'mixed', q: 'Loves the idea but the team uses iMessage today', tag: 'channel concern' },
+    { name: 'Henrik V.', club: 'Quiz Bowl', date: 'May 11', sentiment: 'positive', q: 'Critical that incoming officers inherit access automatically', tag: 'turnover validated' },
+    { name: 'Sara Chen', club: 'Debate Union', date: 'May 13', sentiment: 'mixed', q: 'Privacy concerns — wants per-event visibility', tag: 'risk' },
+    { name: 'M. Okoye', club: 'A Capella Collective', date: 'May 14', sentiment: 'positive', q: 'Would switch from Doodle today', tag: 'switching cost low' },
+  ] : [];
+  return (
+    <div className="grid" style={{gridTemplateColumns:'1.6fr 1fr', gap: 24}}>
+      <div className="card">
+        <div className="card-h">
+          <h3>Customer interviews</h3>
+          <span className="muted">{interviews.length} logged · target 10</span>
+          <div className="spacer"/>
+          <button className="btn primary sm"><I.Plus size={12}/>Log interview</button>
+        </div>
+        {interviews.length ? (
+          <table className="table">
+            <thead><tr><th>Person</th><th>Date</th><th>Insight</th><th>Tag</th><th></th></tr></thead>
+            <tbody>
+              {interviews.map((iv, i) => (
+                <tr key={i}>
+                  <td>
+                    <div className="row" style={{gap: 10}}>
+                      <Avatar name={iv.name} initials={iv.name.split(' ').map(p=>p[0]).join('').slice(0,2)} avc={`av-${(i%6)+1}`} size="sm"/>
+                      <div>
+                        <div style={{fontWeight: 500}}>{iv.name}</div>
+                        <div className="muted" style={{fontSize: 11.5}}>{iv.club}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="num" style={{fontSize: 12.5}}>{iv.date}</td>
+                  <td style={{fontStyle: 'italic', color: 'var(--text-dim)', maxWidth: 280}}>"{iv.q}"</td>
+                  <td>
+                    <Pill tone={iv.sentiment === 'positive' ? 'green' : iv.sentiment === 'mixed' ? 'gold' : 'maroon'} dot>{iv.tag}</Pill>
+                  </td>
+                  <td style={{textAlign:'right'}}><button className="btn sm ghost">View</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="card-b" style={{textAlign:'center', padding: 48}}>
+            <I.Mic size={32} style={{color:'var(--text-mute)', marginBottom: 12}}/>
+            <h3 style={{fontSize: 16}}>No interviews yet</h3>
+            <p className="muted" style={{fontSize: 13, maxWidth: 360, margin: '6px auto 16px'}}>Schedule your first 5 customer interviews this week. Use the script template to stay consistent.</p>
+            <button className="btn accent">Log first interview</button>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <div className="card-h">
+          <h3>Interview script</h3>
+          <div className="spacer"/>
+          <button className="btn sm">Copy</button>
+        </div>
+        <div className="card-b" style={{padding: 0}}>
+          {[
+            { num: 1, q: 'Walk me through the last time you had to schedule something for your club.', purpose: 'Anchor in past behavior, not opinions.' },
+            { num: 2, q: 'How long did it take?', purpose: 'Quantify the pain.' },
+            { num: 3, q: 'What tools did you use?', purpose: 'Map current workarounds.' },
+            { num: 4, q: 'What was the worst part?', purpose: 'Surface emotional cost.' },
+            { num: 5, q: 'If a magic genie fixed one thing, what would it be?', purpose: 'Anchor priorities.' },
+            { num: 6, q: 'Would you pay $5/month for it?', purpose: 'Test willingness to pay.' },
+          ].map((s, i) => (
+            <div key={s.num} style={{padding:'14px var(--pad)', borderBottom: i < 5 ? '1px solid var(--rule-2)' : 0, display:'grid', gridTemplateColumns:'24px 1fr', gap: 12}}>
+              <div className="num" style={{fontFamily:'var(--display)', fontSize: 18, color:'var(--orange-600)'}}>{s.num}</div>
+              <div>
+                <div style={{fontWeight: 500, fontSize: 13}}>{s.q}</div>
+                <div className="muted" style={{fontSize: 11.5, marginTop: 2, fontStyle:'italic'}}>{s.purpose}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Surveys({ populated }) {
+  return (
+    <div className="grid" style={{gridTemplateColumns:'1fr 320px', gap: 24}}>
+      <div className="card">
+        <div className="card-h">
+          <h3>Active surveys</h3>
+          <div className="spacer"/>
+          <button className="btn sm primary"><I.Plus size={12}/>New survey</button>
+        </div>
+        <div className="card-b" style={{padding: 0}}>
+          {(populated ? [
+            { title: 'Scheduling pain at student orgs', tool: 'Typeform', sent: 142, completed: 47, days: 4 },
+            { title: 'Will you pay $5/mo? (price test)', tool: 'Google Forms', sent: 60, completed: 38, days: 2 },
+          ] : []).map((s, i) => {
+            const rate = Math.round(s.completed/s.sent*100);
+            return (
+              <div key={i} style={{padding:'var(--pad-sm) var(--pad)', borderBottom: i < 1 ? '1px solid var(--rule-2)' : 0}}>
+                <div className="row between" style={{alignItems:'flex-start', marginBottom: 8}}>
+                  <div>
+                    <div style={{fontWeight: 500}}>{s.title}</div>
+                    <div className="muted" style={{fontSize:12, marginTop: 2}}>via {s.tool} · started {s.days}d ago</div>
+                  </div>
+                  <Pill tone="orange" dot>Live</Pill>
+                </div>
+                <div className="row" style={{gap: 20, marginTop: 10}}>
+                  <div><div className="muted" style={{fontSize:11}}>SENT</div><div className="num" style={{fontWeight:500}}>{s.sent}</div></div>
+                  <div><div className="muted" style={{fontSize:11}}>COMPLETED</div><div className="num" style={{fontWeight:500}}>{s.completed}</div></div>
+                  <div><div className="muted" style={{fontSize:11}}>RATE</div><div className="num" style={{fontWeight:500, color: 'var(--leaf)'}}>{rate}%</div></div>
+                  <div style={{flex:1}}><div className="lp"><i style={{width:`${rate}%`}}/></div></div>
+                  <button className="btn sm">View results</button>
+                </div>
+              </div>
+            );
+          })}
+          {!populated && (
+            <div style={{padding: 40, textAlign:'center'}}>
+              <p className="muted">No surveys yet. Connect your Typeform or Google Forms to start.</p>
+              <div className="row" style={{justifyContent:'center', gap: 8, marginTop: 12}}>
+                <button className="btn">Connect Typeform</button>
+                <button className="btn">Connect Google Forms</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-h"><h3>Integrations</h3></div>
+        <div className="card-b" style={{padding: 0}}>
+          {[
+            { name: 'Typeform', desc: 'Long-form surveys', connected: populated, color: '#0F2C4C' },
+            { name: 'Google Forms', desc: 'Quick polls', connected: populated, color: '#7E3FF2' },
+            { name: 'Tally', desc: 'Free unlimited', connected: false, color: '#22C39F' },
+            { name: 'SurveyMonkey', desc: 'Statistical analysis', connected: false, color: '#00BF6F' },
+          ].map((it, i) => (
+            <div key={it.name} className="row" style={{padding:'12px var(--pad)', borderBottom: i < 3 ? '1px solid var(--rule-2)' : 0, gap: 10}}>
+              <div style={{width: 28, height: 28, background: it.color, borderRadius: 6, flex: 'none'}}/>
+              <div style={{flex:1}}>
+                <div style={{fontWeight: 500, fontSize: 13}}>{it.name}</div>
+                <div className="muted" style={{fontSize: 11}}>{it.desc}</div>
+              </div>
+              {it.connected ? <Pill tone="green" dot>Connected</Pill> : <button className="btn sm">Connect</button>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LandingTab({ populated }) {
+  return (
+    <div className="grid" style={{gridTemplateColumns: '1.4fr 1fr', gap: 24}}>
+      <div className="card">
+        <div className="card-h">
+          <h3>cohere.studentlaunch.app</h3>
+          <Pill tone="green" dot>Live</Pill>
+          <div className="spacer"/>
+          <button className="btn sm"><I.Edit size={12}/>Edit</button>
+          <button className="btn sm primary"><I.Globe size={12}/>Open</button>
+        </div>
+        <div className="card-b" style={{padding: 0, background: 'var(--paper-3)'}}>
+          {/* Landing page mock */}
+          <div style={{padding: '48px 32px', textAlign:'center', borderBottom: '1px solid var(--rule-2)'}}>
+            <div className="kicker">For student organizations</div>
+            <div style={{fontFamily:'var(--display)', fontSize: 28, margin: '8px 0', lineHeight: 1.1}}>The scheduler that<br/>survives officer turnover.</div>
+            <p className="muted" style={{fontSize: 13, maxWidth: 380, margin: '0 auto 16px'}}>Drag-to-book meetings, auto-rotating permissions, Slack-native. Built for student clubs.</p>
+            <div className="row" style={{justifyContent:'center', gap: 8}}>
+              <input className="input" placeholder="your.email@edu" style={{maxWidth: 240, fontSize: 12.5}}/>
+              <button className="btn accent">Get early access</button>
+            </div>
+          </div>
+          <div className="grid grid-3" style={{gap: 0, borderBottom: '1px solid var(--rule-2)'}}>
+            {[
+              { t: '4–6 hrs', s: 'saved per week per club' },
+              { t: '8,400+', s: 'student orgs at top campuses' },
+              { t: '94%', s: 'said they\'d switch from Doodle' },
+            ].map((s, i) => (
+              <div key={i} style={{padding: 20, borderRight: i < 2 ? '1px solid var(--rule-2)' : 0, textAlign:'center'}}>
+                <div style={{fontFamily:'var(--display)', fontSize: 24, color:'var(--orange-600)'}}>{s.t}</div>
+                <div className="muted" style={{fontSize: 11.5}}>{s.s}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-h"><h3>Landing performance</h3></div>
+        <div className="card-b">
+          <div className="grid grid-2" style={{gap: 12}}>
+            <div className="stat" style={{padding: 0}}>
+              <div className="eyebrow">Visitors (7d)</div>
+              <div className="v num">{populated ? '1,247' : 0}</div>
+              <div className="delta up">↑ 38% vs prior 7d</div>
+            </div>
+            <div className="stat" style={{padding: 0}}>
+              <div className="eyebrow">Signups</div>
+              <div className="v num">{populated ? '218' : 0}</div>
+              <div className="delta up">17.5% conv</div>
+            </div>
+          </div>
+          <div className="divider" style={{margin: '16px 0'}}/>
+          <div className="muted" style={{fontSize: 12, marginBottom: 8}}>Traffic sources</div>
+          {[
+            { name: 'Reddit r/college', pct: 42 },
+            { name: 'Campus Slack', pct: 28 },
+            { name: 'Instagram', pct: 18 },
+            { name: 'Direct', pct: 12 },
+          ].map(s => (
+            <div key={s.name} className="row" style={{gap: 10, marginTop: 8}}>
+              <div style={{fontSize: 12, minWidth: 110}}>{s.name}</div>
+              <div style={{flex:1}}><div className="lp"><i style={{width: `${s.pct*2}%`, background:'var(--navy-700)'}}/></div></div>
+              <span className="num" style={{fontSize: 11.5, color:'var(--text-mute)', minWidth: 32, textAlign:'right'}}>{s.pct}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CompetitorMatrix({ populated }) {
+  const comps = populated ? [
+    { name: 'Doodle', target: 'General teams', scheduling: 4, slack: 1, perms: 1, price: 4, student: 1 },
+    { name: 'When2meet', target: 'Casual groups', scheduling: 3, slack: 0, perms: 0, price: 5, student: 2 },
+    { name: 'Calendly', target: 'Sales / B2B', scheduling: 5, slack: 4, perms: 3, price: 2, student: 0 },
+    { name: 'Cal.com', target: 'B2B / dev', scheduling: 5, slack: 4, perms: 4, price: 3, student: 0 },
+    { name: 'Cohere (us)', target: 'Student orgs', scheduling: 4, slack: 5, perms: 5, price: 5, student: 5 },
+  ] : [];
+  const Star = ({ n }) => (
+    <span style={{display:'inline-flex', gap: 2}}>
+      {Array.from({length:5}, (_, i) => (
+        <span key={i} style={{
+          width: 8, height: 8, borderRadius: '50%',
+          background: i < n ? (n >= 4 ? 'var(--leaf)' : n >= 3 ? 'var(--orange-500)' : 'var(--text-mute)') : 'var(--rule)',
+        }}/>
+      ))}
+    </span>
+  );
+  return (
+    <div className="card">
+      <div className="card-h">
+        <h3>Competitor matrix</h3>
+        <span className="muted">Score 1–5 · the only criteria that matter are the ones your users care about.</span>
+        <div className="spacer"/>
+        <button className="btn sm"><I.Plus size={12}/>Add competitor</button>
+      </div>
+      {populated ? (
+        <table className="table">
+          <thead>
+            <tr>
+              <th style={{minWidth: 160}}>Product</th>
+              <th>Target</th>
+              <th>Scheduling UX</th>
+              <th>Slack integration</th>
+              <th>Permissions / turnover</th>
+              <th>Price for students</th>
+              <th>Student-specific</th>
+            </tr>
+          </thead>
+          <tbody>
+            {comps.map((c, i) => (
+              <tr key={c.name} style={c.name.includes('us') ? {background:'var(--orange-50)'} : {}}>
+                <td style={{fontWeight: 500}}>{c.name}</td>
+                <td className="muted" style={{fontSize: 12.5}}>{c.target}</td>
+                <td><Star n={c.scheduling}/></td>
+                <td><Star n={c.slack}/></td>
+                <td><Star n={c.perms}/></td>
+                <td><Star n={c.price}/></td>
+                <td><Star n={c.student}/></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <div className="card-b" style={{textAlign:'center', padding: 48}}>
+          <p className="muted">Map your first 3 competitors to see your wedge.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// PROTOTYPE GALLERY
+// ─────────────────────────────────────────────────────────────────────────
+function PrototypeScreen({ populated }) {
+  const [filter, setFilter] = React.useState('all');
+  const filtered = PROTOTYPES.filter(p => filter === 'all' || p.stage.toLowerCase() === filter);
+  return (
+    <div className="content">
+      <div className="row between">
+        <div>
+          <div className="kicker">Stage 3 · Prototyping</div>
+          <h1>Build something testable.</h1>
+          <p className="muted" style={{maxWidth: 560, marginTop: 6}}>No-code tools, MVP templates, peer feedback. Share your build with the cohort and get real reactions.</p>
+        </div>
+        <button className="btn accent"><I.Plus size={14}/>Submit your prototype</button>
+      </div>
+
+      {/* Tools row */}
+      <div className="card">
+        <div className="card-h"><h3>No-code & MVP tools</h3><span className="muted">Recommended by your mentors</span></div>
+        <div className="card-b">
+          <div className="grid grid-4" style={{gap: 12}}>
+            {[
+              { name: 'Bubble', desc: 'Full web apps, no code', color: '#0E1F44' },
+              { name: 'Adalo', desc: 'Native mobile apps', color: '#7C3AED' },
+              { name: 'Glide', desc: 'Apps from spreadsheets', color: '#22C39F' },
+              { name: 'Webflow', desc: 'Marketing sites + CMS', color: '#4353FF' },
+              { name: 'Figma', desc: 'Design + prototyping', color: '#F24E1E' },
+              { name: 'Notion', desc: 'Docs, wiki, lightweight DB', color: '#0E1A2E' },
+              { name: 'Airtable', desc: 'Databases for non-devs', color: '#F8C53A' },
+              { name: 'Zapier', desc: 'Glue between tools', color: '#FF4F00' },
+            ].map(t => (
+              <div key={t.name} className="card lift" style={{padding: 12, cursor: 'pointer'}}>
+                <div className="row" style={{gap: 10}}>
+                  <div style={{width: 32, height: 32, background: t.color, borderRadius: 7, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'var(--display)', fontWeight: 600, flex: 'none'}}>{t.name[0]}</div>
+                  <div>
+                    <div style={{fontWeight: 500, fontSize: 13}}>{t.name}</div>
+                    <div className="muted" style={{fontSize: 11}}>{t.desc}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="divider" style={{margin: '16px 0'}}/>
+          <div className="row" style={{gap: 8, flexWrap:'wrap'}}>
+            <span className="eyebrow">Physical products:</span>
+            <Pill>3D file upload (STL/STEP)</Pill>
+            <Pill>Bill of materials template</Pill>
+            <Pill>Campus 3D printers map</Pill>
+            <Pill>Maker space booking</Pill>
+          </div>
+        </div>
+      </div>
+
+      {/* Gallery */}
+      <div>
+        <div className="section-h">
+          <h2>Cohort prototype gallery</h2>
+          <div className="row" style={{gap: 6}}>
+            {['all', 'validation', 'prototyping', 'launch'].map(f => (
+              <button key={f} className={`btn sm ${filter === f ? 'primary' : 'ghost'}`} onClick={() => setFilter(f)} style={{textTransform:'capitalize'}}>{f}</button>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-3">
+          {filtered.map(p => <PrototypeCard key={p.id} p={p}/>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PrototypeCard({ p }) {
+  const [voted, setVoted] = React.useState(false);
+  return (
+    <div className="card lift">
+      {/* Faux screenshot */}
+      <div style={{height: 180, background: p.color, borderRadius: 'var(--card-r) var(--card-r) 0 0', position:'relative', overflow:'hidden', borderBottom: '1px solid var(--border)'}}>
+        <div style={{position:'absolute', inset: 16, background: 'rgba(255,255,255,.6)', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column', gap: 6}}>
+          <div style={{display:'flex', gap: 4}}>
+            {[0,1,2].map(i => <div key={i} style={{width: 6, height: 6, borderRadius: '50%', background: 'rgba(0,0,0,.15)'}}/>)}
+          </div>
+          <div style={{height: 8, width: '60%', background: 'rgba(0,0,0,.18)', borderRadius: 2}}/>
+          <div style={{height: 4, width: '40%', background: 'rgba(0,0,0,.1)', borderRadius: 2}}/>
+          <div style={{display:'flex', gap: 4, marginTop: 4, flexWrap:'wrap'}}>
+            {[0,1,2,3].map(i => <div key={i} style={{flex: '1 1 40%', height: 18, background: 'rgba(0,0,0,.08)', borderRadius: 3}}/>)}
+          </div>
+          <div style={{height: 24, width: '50%', background: '#0E1F44', borderRadius: 4, marginTop: 'auto', alignSelf: 'flex-start'}}/>
+        </div>
+        <div style={{position:'absolute', top: 10, right: 10}}>
+          <Pill tone="outline">{p.stage}</Pill>
+        </div>
+      </div>
+      <div className="card-b tight">
+        <div style={{fontWeight: 500, fontSize: 14.5, marginBottom: 4}}>{p.title}</div>
+        <div className="muted" style={{fontSize: 12, marginBottom: 12}}>{p.team} · {p.author}</div>
+        <div className="row between">
+          <div className="row" style={{gap: 12}}>
+            <button className="row" style={{gap: 4, background:'transparent', border: 0, color: voted ? 'var(--orange-600)' : 'var(--text-dim)', cursor:'pointer', fontSize: 12, fontWeight: 500}} onClick={() => setVoted(!voted)}>
+              <I.Heart size={14} fill={voted ? 'currentColor' : 'none'}/>
+              <span className="num">{p.upvotes + (voted ? 1 : 0)}</span>
+            </button>
+            <span className="row" style={{gap: 4, color: 'var(--text-dim)', fontSize: 12, fontWeight: 500}}>
+              <I.Megaphone size={14}/>
+              <span className="num">{p.comments}</span>
+            </span>
+          </div>
+          <button className="btn sm">View</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// MENTOR MATCHING
+// ─────────────────────────────────────────────────────────────────────────
+function MentorScreen() {
+  const [filter, setFilter] = React.useState('All');
+  const [active, setActive] = React.useState(MENTORS[0]);
+  const tags = ['All', 'SaaS', 'Marketplaces', 'Finance', 'Brand', 'User research', 'Pre-seed'];
+  const list = MENTORS.filter(m => filter === 'All' || m.tags.includes(filter));
+  return (
+    <div className="content">
+      <div>
+        <div className="kicker">Stage 4 · Incubation</div>
+        <h1>Find your mentor.</h1>
+        <p className="muted" style={{maxWidth: 560, marginTop: 6}}>30 mentors across faculty, alumni, and outside operators. Match on what your team needs <i>this</i> month — you can change later.</p>
+      </div>
+
+      <div className="row wrap" style={{gap: 6}}>
+        {tags.map(t => (
+          <button key={t} className={`btn sm ${filter === t ? 'primary' : 'ghost'}`} onClick={() => setFilter(t)}>{t}</button>
+        ))}
+        <div className="spacer"/>
+        <div className="row" style={{gap: 8}}>
+          <button className="btn sm"><I.Sparkle size={12}/>AI match for our team</button>
+        </div>
+      </div>
+
+      <div className="grid" style={{gridTemplateColumns: '1.6fr 1fr', gap: 24}}>
+        <div className="grid grid-2">
+          {list.map(m => (
+            <div key={m.id} className={`card lift`} style={{cursor:'pointer', borderColor: active.id === m.id ? 'var(--navy-800)' : undefined, borderWidth: active.id === m.id ? 2 : 1}} onClick={() => setActive(m)}>
+              <div className="card-b">
+                <div className="row between" style={{alignItems:'flex-start'}}>
+                  <div className="row" style={{gap: 12}}>
+                    <Avatar name={m.name} initials={m.initials} avc={m.avc} size="lg"/>
+                    <div>
+                      <div style={{fontWeight: 600, fontSize: 14}}>{m.name}</div>
+                      <div className="muted" style={{fontSize: 12}}>{m.title}</div>
+                    </div>
+                  </div>
+                  <div style={{textAlign:'right'}}>
+                    <div style={{fontFamily:'var(--display)', fontSize: 22, color:'var(--orange-600)', lineHeight: 1}}>{m.match}<span style={{fontSize: 12, color:'var(--text-mute)'}}>%</span></div>
+                    <div className="muted" style={{fontSize: 10, letterSpacing:'.06em', textTransform:'uppercase'}}>match</div>
+                  </div>
+                </div>
+                <div className="row wrap" style={{gap: 4, marginTop: 12}}>
+                  {m.tags.map(t => <Pill key={t}>{t}</Pill>)}
+                </div>
+                <div className="divider" style={{margin: '12px 0'}}/>
+                <div className="row between" style={{fontSize: 12}}>
+                  <span className="row" style={{gap:4}}><I.Star size={12} style={{color:'var(--gold)'}}/><span className="num">{m.rating}</span><span className="muted">· {m.sessions} sessions</span></span>
+                  <span className={m.available === 'Booked' ? 'muted' : ''} style={{color: m.available === 'Booked' ? undefined : 'var(--leaf)', fontWeight: 500, whiteSpace: 'nowrap'}}>
+                    {m.available === 'Booked' ? 'Fully booked' : `Open ${m.available}`}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Detail rail */}
+        <div className="col" style={{gap: 16, position: 'sticky', top: 80, alignSelf:'flex-start'}}>
+          <div className="card">
+            <div className="card-b" style={{textAlign:'center'}}>
+              <Avatar name={active.name} initials={active.initials} avc={active.avc} size="xl"/>
+              <div style={{fontFamily:'var(--display)', fontSize: 22, marginTop: 12}}>{active.name}</div>
+              <div className="muted" style={{fontSize: 13}}>{active.title}</div>
+              <div className="row" style={{justifyContent:'center', gap: 6, marginTop: 12, flexWrap:'wrap'}}>
+                {active.tags.map(t => <Pill key={t}>{t}</Pill>)}
+              </div>
+              <div className="divider" style={{margin: '16px 0'}}/>
+              <div style={{textAlign:'left'}}>
+                <div className="eyebrow" style={{marginBottom: 4}}>Why it's a match</div>
+                <p className="muted" style={{fontSize: 12.5, margin: 0}}>You're in <b style={{color:'var(--text)'}}>Validation</b> on a <b style={{color:'var(--text)'}}>SaaS</b> product targeting <b style={{color:'var(--text)'}}>B2B-ish</b> customers (student orgs). {active.name.split(' ')[0]}'s expertise in <b style={{color:'var(--text)'}}>{active.tags[0]}</b> directly maps to the next 4–6 weeks of your journey.</p>
+              </div>
+              <div className="divider" style={{margin: '16px 0'}}/>
+              <div className="row" style={{gap: 8}}>
+                <button className="btn" style={{flex:1}}><I.Send size={14}/>Message</button>
+                <button className="btn primary" style={{flex:1}} disabled={active.available === 'Booked'}><I.Cal size={14}/>Request session</button>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-h"><h3 style={{fontSize:15}}>Availability</h3></div>
+            <div className="card-b" style={{padding: 12}}>
+              <div className="grid" style={{gridTemplateColumns: 'repeat(7, 1fr)', gap: 4}}>
+                {['M','T','W','T','F','S','S'].map((d, i) => <div key={i} style={{textAlign:'center', fontSize: 10, color:'var(--text-mute)', fontWeight: 600}}>{d}</div>)}
+                {Array.from({length: 21}, (_, i) => {
+                  const day = i + 1;
+                  const isOpen = [3, 5, 8, 10, 15, 17, 20].includes(day);
+                  const isToday = day === 5;
+                  return (
+                    <div key={i} style={{
+                      aspectRatio: '1', display:'flex', alignItems:'center', justifyContent:'center',
+                      borderRadius: 6, fontSize: 11,
+                      background: isOpen ? 'var(--orange-50)' : 'transparent',
+                      border: isToday ? '1.5px solid var(--navy-800)' : '1px solid var(--rule)',
+                      color: isOpen ? 'var(--orange-700)' : 'var(--text-dim)',
+                      fontWeight: isOpen ? 600 : 400,
+                    }} className="num">{day}</div>
+                  );
+                })}
+              </div>
+              <div className="muted" style={{fontSize: 11, marginTop: 10}}>Orange = open · navy = today</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { ValidationScreen, PrototypeScreen, MentorScreen });
+
+
+/* ═══════════════ student3.jsx ═══════════════ */
+// student3.jsx — Customers / CRM, Pitch Deck Builder, Marketplace, Leaderboard, Landing page
+
+// ─────────────────────────────────────────────────────────────────────────
+// FIRST CUSTOMERS / CRM
+// ─────────────────────────────────────────────────────────────────────────
+function CustomersScreen({ populated }) {
+  const [customers, setCustomers] = React.useState(CUSTOMERS_SEED);
+  const [leads, setLeads] = React.useState([
+    { id: 'l1', name: 'Cycling Club', stage: 'lead', value: 49, ic: 'av-1' },
+    { id: 'l2', name: 'Chess Society', stage: 'lead', value: 49, ic: 'av-2' },
+    { id: 'l3', name: 'Film Co-op', stage: 'demo', value: 49, ic: 'av-3' },
+    { id: 'l4', name: 'Tennis Team', stage: 'demo', value: 49, ic: 'av-4' },
+    { id: 'l5', name: 'Eco Society', stage: 'negotiation', value: 79, ic: 'av-5' },
+  ]);
+  const paidCount = customers.filter(c => c.status === 'paid').length;
+  const totalRevenue = customers.filter(c => c.status === 'paid').reduce((a, c) => a + c.value, 0);
+
+  if (!populated) {
+    return (
+      <div className="content">
+        <div className="kicker">Stage 5 · Launch & Sales</div>
+        <h1>Your first 10 customers tracker</h1>
+        <div className="card" style={{textAlign: 'center', padding: 64, marginTop: 24}}>
+          <div className="badge-coin gold" style={{width: 80, height: 80, margin: '0 auto 20px', opacity: .4, filter:'grayscale(.7)'}}>
+            <I.Money size={36}/>
+          </div>
+          <h3 style={{fontSize: 22, fontFamily:'var(--display)', fontWeight:500}}>The "First Dollar" badge is waiting.</h3>
+          <p className="muted" style={{maxWidth: 420, margin: '8px auto 24px'}}>Once your prototype is ready, come back here to log your first customer and start tracking the path to 10.</p>
+          <button className="btn">Skip ahead anyway</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="content">
+      <div className="row between">
+        <div>
+          <div className="kicker">Stage 5 · Launch & Sales</div>
+          <h1>The road to your first 10.</h1>
+        </div>
+        <div className="row" style={{gap: 8}}>
+          <button className="btn"><I.Plus size={14}/>Add lead</button>
+          <button className="btn primary"><I.Money size={14}/>Log customer</button>
+        </div>
+      </div>
+
+      {/* Hero progress */}
+      <div className="card">
+        <div className="card-b" style={{padding: 24}}>
+          <div className="row between" style={{marginBottom: 16}}>
+            <div>
+              <div className="eyebrow">First 10 customers</div>
+              <div style={{display:'flex', alignItems:'baseline', gap: 6, marginTop: 6}}>
+                <span style={{fontFamily:'var(--display)', fontSize: 56, lineHeight:1, fontWeight:500}}>{paidCount}</span>
+                <span style={{fontFamily:'var(--display)', fontSize: 28, color:'var(--text-mute)'}}>/ 10</span>
+              </div>
+              <div className="muted" style={{fontSize: 12.5, marginTop: 4}}>{10 - paidCount} more to unlock <b style={{color:'var(--orange-600)'}}>"Launch Champion"</b> badge</div>
+            </div>
+            <div style={{textAlign:'right'}}>
+              <div className="eyebrow">Revenue to date</div>
+              <div style={{fontFamily:'var(--display)', fontSize: 36, lineHeight:1, marginTop: 6}}>${totalRevenue}</div>
+              <div className="muted num" style={{fontSize: 12.5}}>$49/mo · paid annually</div>
+            </div>
+          </div>
+          {/* 10 dot tracker */}
+          <div className="row" style={{gap: 8, marginTop: 8}}>
+            {Array.from({length: 10}, (_, i) => {
+              const filled = i < paidCount;
+              return (
+                <div key={i} style={{
+                  flex: 1, height: 38, borderRadius: 10,
+                  background: filled ? 'var(--orange-500)' : 'var(--paper-2)',
+                  border: `1.5px solid ${filled ? 'var(--orange-500)' : 'var(--border)'}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: filled ? '#fff' : 'var(--text-mute)',
+                  fontFamily: 'var(--display)', fontSize: 16, fontWeight: 500,
+                  position:'relative',
+                  boxShadow: filled ? '0 4px 12px -4px rgba(244,122,31,.5)' : 'none',
+                  transition: 'all .3s',
+                }}>
+                  {filled ? <I.Check size={16}/> : i + 1}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid" style={{gridTemplateColumns: '1.4fr 1fr', gap: 24}}>
+        {/* Paid customers table */}
+        <div className="card">
+          <div className="card-h">
+            <h3>Paying customers</h3>
+            <span className="muted">{paidCount} paid · {customers.length - paidCount} on trial</span>
+          </div>
+          <table className="table">
+            <thead><tr><th>Customer</th><th>Started</th><th>Rating</th><th>MRR</th><th></th></tr></thead>
+            <tbody>
+              {customers.map((c, i) => (
+                <tr key={c.id}>
+                  <td>
+                    <div className="row" style={{gap: 10}}>
+                      <Avatar name={c.name} initials={c.name.split(' ').map(p=>p[0]).join('').slice(0,2).toUpperCase()} avc={`av-${(i%6)+1}`} size="sm"/>
+                      <div>
+                        <div style={{fontWeight:500, fontSize: 13.5}}>{c.name}</div>
+                        <div className="muted" style={{fontSize: 11.5}}>{c.contact}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="num" style={{fontSize: 12.5}}>{c.date}</td>
+                  <td>
+                    <div className="row" style={{gap: 2}}>
+                      {Array.from({length: 5}, (_, i) => (
+                        <I.Star key={i} size={11} fill={i < c.rating ? 'var(--gold)' : 'none'} stroke={i < c.rating ? 'var(--gold)' : 'var(--rule)'}/>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="num" style={{fontWeight: 500}}>${c.value}</td>
+                  <td><Pill tone={c.status === 'paid' ? 'green' : 'gold'} dot>{c.status}</Pill></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* CRM pipeline (mini-kanban) */}
+        <div className="card">
+          <div className="card-h">
+            <h3>Lead pipeline</h3>
+            <span className="muted">{leads.length} active</span>
+          </div>
+          <div className="card-b">
+            <div className="grid grid-3" style={{gap: 8}}>
+              {[
+                { key: 'lead', label: 'Lead', color: 'navy' },
+                { key: 'demo', label: 'Demo', color: 'orange' },
+                { key: 'negotiation', label: 'Negotiation', color: 'gold' },
+              ].map(col => (
+                <div key={col.key} className="kcol">
+                  <h4><span className="dot" style={{width:6, height:6, borderRadius:'50%', background: col.color === 'navy' ? 'var(--navy-700)' : col.color === 'orange' ? 'var(--orange-500)' : 'var(--gold)'}}/>{col.label} · {leads.filter(l => l.stage === col.key).length}</h4>
+                  {leads.filter(l => l.stage === col.key).map(l => (
+                    <div key={l.id} className="kcard">
+                      <div className="row" style={{gap: 6}}>
+                        <Avatar initials={l.name.split(' ').map(p=>p[0]).join('').slice(0,2)} avc={l.ic} size="sm"/>
+                        <div style={{flex:1, fontSize: 12, fontWeight: 500}}>{l.name}</div>
+                      </div>
+                      <div className="row between">
+                        <span className="muted num" style={{fontSize: 11}}>${l.value}/mo</span>
+                        <I.Chevron size={10} style={{color:'var(--text-mute)'}}/>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid" style={{gridTemplateColumns:'1fr 1fr', gap: 24}}>
+        {/* Customer voice */}
+        <div className="card">
+          <div className="card-h">
+            <h3>Customer voice</h3>
+            <span className="muted">Latest feedback</span>
+          </div>
+          <div className="card-b">
+            {customers.slice(0, 3).map((c, i) => (
+              <div key={c.id} style={{padding: '12px 0', borderBottom: i < 2 ? '1px solid var(--rule-2)' : 0}}>
+                <div className="row between" style={{marginBottom: 6}}>
+                  <div style={{fontWeight: 500, fontSize: 13}}>{c.name}</div>
+                  <div className="row" style={{gap: 2}}>
+                    {Array.from({length: 5}, (_, j) => (
+                      <I.Star key={j} size={10} fill={j < c.rating ? 'var(--gold)' : 'none'} stroke={j < c.rating ? 'var(--gold)' : 'var(--rule)'}/>
+                    ))}
+                  </div>
+                </div>
+                <p style={{fontStyle:'italic', color:'var(--text-dim)', fontSize: 12.5, margin: 0}}>"{c.feedback}"</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Post-launch checklist */}
+        <div className="card">
+          <div className="card-h">
+            <h3>Post-launch checklist</h3>
+            <span className="muted">7 of 12 complete</span>
+          </div>
+          <div className="card-b" style={{padding: 0}}>
+            {[
+              { t: 'Set up Stripe Connect for payouts', d: true },
+              { t: 'Register cohere.com (or .co fallback)', d: true },
+              { t: 'File for Massachusetts LLC', d: true },
+              { t: 'Open business bank account (Mercury)', d: true },
+              { t: 'Set up customer support email', d: true },
+              { t: 'Add Terms of Service & Privacy', d: true },
+              { t: 'Trademark research (USPTO TESS)', d: true },
+              { t: 'File trademark application', d: false },
+              { t: 'Set up bookkeeping (Wave / Pilot)', d: false },
+              { t: 'Founders\' agreement signed', d: false },
+              { t: 'Get business insurance quote', d: false },
+              { t: 'Open SAFE-ready data room', d: false },
+            ].map((it, i, arr) => (
+              <div key={i} style={{display:'flex', alignItems:'center', gap: 12, padding:'10px var(--pad)', borderBottom: i < arr.length-1 ? '1px solid var(--rule-2)' : 0}}>
+                <input type="checkbox" className="check" checked={it.d} readOnly/>
+                <div style={{fontSize: 12.5, fontWeight: it.d ? 400 : 500, color: it.d ? 'var(--text-mute)' : 'var(--text)', textDecoration: it.d ? 'line-through' : 'none'}}>{it.t}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// PITCH DECK BUILDER
+// ─────────────────────────────────────────────────────────────────────────
+function PitchScreen() {
+  const slides = [
+    { n: 1, title: 'Cohere', subtitle: 'The scheduler that survives officer turnover.', kind: 'title' },
+    { n: 2, title: 'The pain', body: 'Student org leaders waste 4–6h/week on scheduling.', kind: 'problem' },
+    { n: 3, title: 'Why now', body: 'Officer turnover breaks every tool every spring.', kind: 'why' },
+    { n: 4, title: 'Solution', body: 'Auto-rotating permissions + Slack-native scheduling.', kind: 'sol' },
+    { n: 5, title: 'Demo', body: 'Product walkthrough', kind: 'demo' },
+    { n: 6, title: 'Market', body: '8,400 clubs · top 3 campuses · $5M ARR opportunity.', kind: 'market' },
+    { n: 7, title: 'Traction', body: '6 paying customers · 218 signups · $294 MRR', kind: 'traction' },
+    { n: 8, title: 'Business model', body: '$49/mo per club · 80% gross margins.', kind: 'biz' },
+    { n: 9, title: 'Competition', body: 'Doodle, Calendly, When2meet — none student-native.', kind: 'comp' },
+    { n: 10, title: 'Team', body: 'AK, Priya, Marcus, Jin · MIT Sloan & EECS', kind: 'team' },
+    { n: 11, title: 'Ask', body: '$50K SAFE for 6 months runway to Series A traction.', kind: 'ask' },
+  ];
+  const [active, setActive] = React.useState(0);
+  const a = slides[active];
+
+  return (
+    <div className="content">
+      <div className="row between">
+        <div>
+          <div className="kicker">Stage 5 · Launch & Sales</div>
+          <h1>Pitch deck builder</h1>
+          <p className="muted" style={{maxWidth: 560, marginTop: 6}}>11 slides, prefilled from your idea, validation data, and traction. Edit any slide and present from this URL.</p>
+        </div>
+        <div className="row" style={{gap: 8}}>
+          <button className="btn"><I.Sparkle size={14}/>AI polish</button>
+          <button className="btn"><I.File size={14}/>Export PDF</button>
+          <button className="btn primary"><I.Send size={14}/>Send to investor</button>
+        </div>
+      </div>
+
+      <div className="grid" style={{gridTemplateColumns: '220px 1fr', gap: 16}}>
+        {/* Slide list */}
+        <div className="col" style={{gap: 6, maxHeight: 700, overflowY: 'auto', padding: 4}}>
+          {slides.map((s, i) => (
+            <div key={s.n} onClick={() => setActive(i)} className="card lift" style={{
+              padding: 10, cursor: 'pointer', borderColor: active === i ? 'var(--navy-800)' : undefined, borderWidth: active === i ? 2 : 1,
+            }}>
+              <div className="row" style={{gap: 8}}>
+                <span className="num" style={{fontSize: 11, color:'var(--text-mute)', minWidth: 14}}>{s.n}</span>
+                <div style={{fontSize: 12, fontWeight: 500, flex: 1, minWidth: 0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{s.title}</div>
+              </div>
+            </div>
+          ))}
+          <button className="btn ghost sm" style={{justifyContent:'flex-start'}}><I.Plus size={12}/>Add slide</button>
+        </div>
+
+        {/* Slide editor */}
+        <div className="col" style={{gap: 16}}>
+          {/* Slide canvas */}
+          <div className="card" style={{aspectRatio: '16/9', overflow:'hidden', position:'relative', background: a.kind === 'title' ? 'var(--navy-900)' : 'var(--paper-3)'}}>
+            <SlideCanvas slide={a}/>
+            <div style={{position: 'absolute', bottom: 12, right: 16, fontSize: 11, color:'rgba(255,255,255,.5)', fontFamily:'var(--mono)'}}>
+              {a.kind !== 'title' && <span style={{color:'var(--text-mute)'}}>{a.n} / {slides.length}</span>}
+            </div>
+          </div>
+          {/* Controls below */}
+          <div className="row between">
+            <button className="btn sm" onClick={() => setActive(Math.max(0, active - 1))} disabled={active === 0}><I.Chevron size={12} style={{transform:'rotate(180deg)'}}/>Prev</button>
+            <div className="row" style={{gap: 6}}>
+              {slides.map((_, i) => (
+                <span key={i} onClick={() => setActive(i)} style={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  background: i === active ? 'var(--orange-500)' : i < active ? 'var(--navy-700)' : 'var(--rule)',
+                  cursor: 'pointer'
+                }}/>
+              ))}
+            </div>
+            <button className="btn sm" onClick={() => setActive(Math.min(slides.length - 1, active + 1))} disabled={active === slides.length - 1}>Next <I.Chevron size={12}/></button>
+          </div>
+          {/* Editing pane */}
+          <div className="card">
+            <div className="card-h">
+              <h3>Slide {a.n}: {a.title}</h3>
+              <div className="spacer"/>
+              <Pill tone="orange">Auto-filled from your data</Pill>
+            </div>
+            <div className="card-b">
+              <div className="grid grid-2">
+                <div className="field">
+                  <label className="label">Title</label>
+                  <input className="input" defaultValue={a.title} key={a.title}/>
+                </div>
+                <div className="field">
+                  <label className="label">Layout</label>
+                  <select className="select"><option>Hero</option><option>Stat</option><option>Quote</option><option>Image-left</option></select>
+                </div>
+              </div>
+              <div className="field">
+                <label className="label">Body</label>
+                <textarea className="textarea" rows={3} defaultValue={a.subtitle || a.body} key={a.body || a.subtitle}/>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SlideCanvas({ slide }) {
+  if (slide.kind === 'title') {
+    return (
+      <div style={{position:'absolute', inset: 0, padding: 48, display:'flex', flexDirection:'column', justifyContent:'space-between', color: '#fff'}}>
+        <div style={{display:'flex', alignItems:'center', gap: 8, opacity: .7}}>
+          <Crest/><span style={{fontFamily:'var(--display)', fontSize: 14}}>StartupLaunch · Cohort SP26</span>
+        </div>
+        <div>
+          <div style={{fontFamily:'var(--display)', fontSize: 92, lineHeight: 1, fontWeight: 500, letterSpacing:'-0.02em'}}>{slide.title}<span style={{color:'var(--orange-500)'}}>.</span></div>
+          <div style={{fontSize: 18, marginTop: 16, color:'rgba(255,255,255,.7)', maxWidth: 520}}>{slide.subtitle}</div>
+        </div>
+        <div style={{display:'flex', justifyContent:'space-between', fontFamily:'var(--mono)', fontSize: 11, color:'rgba(255,255,255,.4)'}}>
+          <span>cohere.studentlaunch.app</span>
+          <span>v1.0 · May 2026</span>
+        </div>
+      </div>
+    );
+  }
+  if (slide.kind === 'problem') {
+    return (
+      <div style={{padding: 48, display:'flex', flexDirection:'column', justifyContent:'center', height:'100%'}}>
+        <div className="eyebrow">The problem</div>
+        <div style={{fontFamily:'var(--display)', fontSize: 48, lineHeight: 1.05, fontWeight:500, marginTop: 12, maxWidth: 760}}>Student org leaders lose <span style={{color:'var(--orange-600)'}}>4–6 hours every week</span> to scheduling.</div>
+        <div style={{display:'flex', gap: 32, marginTop: 32}}>
+          {[
+            { v: '4–6h', l: 'weekly time lost' },
+            { v: '94%', l: 'use Doodle reluctantly' },
+            { v: '$0', l: 'spent on better tools' },
+          ].map(s => (
+            <div key={s.l}>
+              <div style={{fontFamily:'var(--display)', fontSize: 36, color: 'var(--navy-800)'}}>{s.v}</div>
+              <div className="muted" style={{fontSize: 13}}>{s.l}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (slide.kind === 'traction') {
+    return (
+      <div style={{padding: 48, display:'flex', flexDirection:'column', justifyContent:'center', height:'100%'}}>
+        <div className="eyebrow">Traction</div>
+        <div style={{fontFamily:'var(--display)', fontSize: 48, marginTop: 8, fontWeight: 500}}>Six paying customers in three weeks.</div>
+        <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap: 16, marginTop: 32}}>
+          {[
+            { v: '6', l: 'paying customers' },
+            { v: '218', l: 'beta signups' },
+            { v: '$294', l: 'MRR' },
+            { v: '4.7', l: 'avg rating' },
+          ].map(s => (
+            <div key={s.l} style={{padding: 20, background: 'var(--paper-2)', borderRadius: 12, border:'1px solid var(--border)'}}>
+              <div style={{fontFamily:'var(--display)', fontSize: 32, fontWeight: 500, color:'var(--navy-800)'}}>{s.v}</div>
+              <div className="muted" style={{fontSize: 12, marginTop: 4}}>{s.l}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  // generic
+  return (
+    <div style={{padding: 48, display:'flex', flexDirection:'column', justifyContent:'center', height:'100%'}}>
+      <div className="eyebrow">{slide.title}</div>
+      <div style={{fontFamily:'var(--display)', fontSize: 44, lineHeight: 1.1, fontWeight: 500, marginTop: 12, maxWidth: 800}}>{slide.body}</div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// MARKETPLACE
+// ─────────────────────────────────────────────────────────────────────────
+function MarketplaceScreen() {
+  const services = [
+    { team: 'Pixel & Pine', title: 'Brand identity package', price: 380, by: 'Maya R. · Design', rating: 4.9, sold: 14, color: '#F2E0CC' },
+    { team: 'Cohere Labs', title: 'Web app prototype in 5 days', price: 620, by: 'You + team', rating: 5.0, sold: 3, color: '#FDE7CC', mine: true },
+    { team: 'Beanline', title: 'Coffee-cart pop-up for events', price: 240, by: 'Ava P. · Beanline', rating: 4.8, sold: 9, color: '#E8DCC4' },
+    { team: 'Solace', title: 'Mental health workshop hosting', price: 180, by: 'Maya R. · Solace', rating: 5.0, sold: 22, color: '#E6D4E8' },
+    { team: 'Foldcraft', title: 'Origami booth for fairs', price: 150, by: 'Ken T. · Foldcraft', rating: 4.6, sold: 5, color: '#F4D6D6' },
+    { team: 'Bricklane', title: 'Pop-up thrift event production', price: 400, by: 'Diego M. · Bricklane', rating: 4.7, sold: 7, color: '#CDDCEC' },
+  ];
+  const reqs = [
+    { co: 'Cambridge Tea Co.', need: 'Instagram content for 30 days', budget: 300, deadline: '2 weeks' },
+    { co: 'Beacon Books', need: 'Refresh of website + logo', budget: 800, deadline: '3 weeks' },
+    { co: 'Hub Vegan Café', need: 'Loyalty app prototype', budget: 1200, deadline: '4 weeks' },
+  ];
+  return (
+    <div className="content">
+      <div className="row between">
+        <div>
+          <div className="kicker">Marketplace · Beta</div>
+          <h1>Earn while you learn.</h1>
+          <p className="muted" style={{maxWidth: 560, marginTop: 6}}>Sell services to local businesses. Payments are escrow-protected by the program. 10% of proceeds funds your stipend.</p>
+        </div>
+        <div className="row" style={{gap: 8}}>
+          <button className="btn"><I.Filter size={14}/>Filter</button>
+          <button className="btn primary"><I.Plus size={14}/>List a service</button>
+        </div>
+      </div>
+
+      {/* Stats strip */}
+      <div className="grid grid-4" style={{gap: 12}}>
+        {[
+          { l: 'Active listings', v: '47', ic: 'Cart' },
+          { l: 'Earned this month', v: '$1,420', ic: 'Money' },
+          { l: 'Open requests', v: '12', ic: 'Megaphone' },
+          { l: 'Your rating', v: '5.0', ic: 'Star' },
+        ].map(s => {
+          const Ic = I[s.ic];
+          return (
+            <div key={s.l} className="card">
+              <div className="card-b" style={{padding:'14px var(--pad)'}}>
+                <div className="row between">
+                  <div className="eyebrow">{s.l}</div>
+                  <Ic size={14} style={{color:'var(--text-mute)'}}/>
+                </div>
+                <div className="num" style={{fontFamily:'var(--display)', fontSize: 28, fontWeight: 500, marginTop: 6}}>{s.v}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="grid" style={{gridTemplateColumns: '2fr 1fr', gap: 24}}>
+        <div>
+          <h2 style={{fontSize: 20, marginBottom: 12}}>Services offered</h2>
+          <div className="grid grid-3">
+            {services.map((s, i) => (
+              <div key={i} className="card lift">
+                <div style={{height: 120, background: s.color, borderRadius: 'var(--card-r) var(--card-r) 0 0', position:'relative'}}>
+                  {s.mine && <div style={{position:'absolute', top: 10, left: 10}}><Pill tone="orange">Yours</Pill></div>}
+                  <div style={{position:'absolute', bottom: 10, right: 12, background:'rgba(255,255,255,.8)', padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600, color:'var(--navy-800)'}}>{s.team}</div>
+                </div>
+                <div className="card-b tight">
+                  <div style={{fontWeight: 500, fontSize: 13.5, marginBottom: 4}}>{s.title}</div>
+                  <div className="muted" style={{fontSize: 11.5, marginBottom: 10}}>{s.by}</div>
+                  <div className="row between">
+                    <div className="num" style={{fontFamily:'var(--display)', fontSize: 18, fontWeight:500}}>${s.price}</div>
+                    <div className="row" style={{gap: 4, fontSize: 11.5, color:'var(--text-mute)'}}>
+                      <I.Star size={11} style={{color:'var(--gold)'}}/>{s.rating} · {s.sold} sold
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="col" style={{gap: 16}}>
+          <div className="card">
+            <div className="card-h"><h3>Open requests</h3><span className="muted">From local biz</span></div>
+            <div className="card-b" style={{padding: 0}}>
+              {reqs.map((r, i) => (
+                <div key={i} style={{padding:'14px var(--pad)', borderBottom: i < 2 ? '1px solid var(--rule-2)' : 0}}>
+                  <div style={{fontWeight: 500, fontSize: 13}}>{r.co}</div>
+                  <div className="muted" style={{fontSize: 12, marginTop: 2}}>{r.need}</div>
+                  <div className="row between" style={{marginTop: 8}}>
+                    <span className="num" style={{fontWeight:500, color:'var(--leaf)'}}>${r.budget}</span>
+                    <span className="muted" style={{fontSize: 11.5}}>{r.deadline}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="card" style={{background:'var(--orange-50)', borderColor: 'var(--orange-100)'}}>
+            <div className="card-b">
+              <div className="row" style={{gap: 8, marginBottom: 6}}>
+                <I.Heart size={14} style={{color:'var(--orange-700)'}}/>
+                <b style={{fontSize: 13, color: 'var(--orange-700)'}}>Payment protection</b>
+              </div>
+              <p style={{fontSize: 12.5, color:'var(--orange-700)', margin: 0}}>Every transaction is escrowed via Stripe Connect. Funds release on delivery. The program holds 10% to fund student stipends.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// LEADERBOARD
+// ─────────────────────────────────────────────────────────────────────────
+function LeaderboardScreen() {
+  const podium = LEADERBOARD.slice(0, 3);
+  const rest = LEADERBOARD.slice(3);
+  return (
+    <div className="content">
+      <div>
+        <div className="kicker">Cohort SP26 · 38 teams</div>
+        <h1>Leaderboard</h1>
+        <p className="muted" style={{maxWidth: 560, marginTop: 6}}>Updated daily. XP comes from tasks completed, customer interviews logged, and stage milestones hit.</p>
+      </div>
+
+      {/* Podium */}
+      <div className="grid grid-3" style={{gap: 16, alignItems: 'flex-end'}}>
+        {[1, 0, 2].map((idx) => {
+          const t = podium[idx];
+          const place = idx + 1;
+          const heights = [180, 220, 160];
+          return (
+            <div key={t.team} className="card" style={{textAlign:'center', height: heights[idx], display:'flex', flexDirection:'column', justifyContent:'space-between', padding: '20px 16px', background: place === 1 ? 'linear-gradient(160deg, #FFF6E0, #FFE9C2)' : place === 2 ? 'linear-gradient(160deg, #F4F0E8, #E5DDCB)' : 'linear-gradient(160deg, #F2DDC8, #E0B789)'}}>
+              <div>
+                <div style={{fontFamily:'var(--display)', fontSize: place === 1 ? 56 : 40, lineHeight: 1, color: place === 1 ? '#A77620' : place === 2 ? '#6E6353' : '#874020'}}>#{place}</div>
+                <div style={{fontFamily:'var(--display)', fontSize: place === 1 ? 22 : 18, marginTop: 8, color:'var(--navy-900)'}}>{t.team}</div>
+                <div className="num" style={{fontSize: 12, color:'rgba(0,0,0,.5)', marginTop: 4}}>{t.members} members</div>
+              </div>
+              <div>
+                <div style={{fontFamily:'var(--display)', fontSize: 24, color:'var(--navy-900)'}}>{t.xp.toLocaleString()} XP</div>
+                <div className="row" style={{justifyContent: 'center', gap: 4, marginTop: 4}}>
+                  <I.Trophy size={11} style={{color:'#A77620'}}/>
+                  <span className="num" style={{fontSize: 11}}>{t.badges} badges</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="card">
+        <table className="table">
+          <thead>
+            <tr><th>Rank</th><th>Team</th><th>Members</th><th>Badges</th><th>XP</th><th>7d</th></tr>
+          </thead>
+          <tbody>
+            {rest.map(t => (
+              <tr key={t.team} style={t.me ? {background: 'var(--orange-50)'} : {}}>
+                <td className="num" style={{fontWeight: 500}}>#{t.rank}</td>
+                <td>
+                  <div className="row" style={{gap: 10}}>
+                    <span style={{fontWeight:500}}>{t.team}</span>
+                    {t.me && <Pill tone="orange">You</Pill>}
+                  </div>
+                </td>
+                <td className="num">{t.members}</td>
+                <td className="num">{t.badges}</td>
+                <td className="num" style={{fontWeight: 500}}>{t.xp.toLocaleString()}</td>
+                <td>
+                  <span className={`num`} style={{
+                    color: t.change > 0 ? 'var(--leaf)' : t.change < 0 ? 'var(--maroon)' : 'var(--text-mute)',
+                    fontSize: 12, fontWeight: 500,
+                  }}>
+                    {t.change > 0 ? `↑ ${t.change}` : t.change < 0 ? `↓ ${Math.abs(t.change)}` : '—'}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+
+/* ═══════════════ app.jsx ═══════════════ */
+// app.jsx — Main app shell, navigation, role switching, tweaks integration
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "dark": false,
+  "density": "regular",
+  "gamification": "heavy",
+  "stage": 1,
+  "populated": true
+}/*EDITMODE-END*/;
+
+function App() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [view, setView] = React.useState('landing'); // 'landing' | 'app'
+  const [role, setRole] = React.useState('student');  // 'student' | 'mentor' | 'admin'
+  const [screen, setScreen] = React.useState('dashboard');
+  const [celebrating, setCelebrating] = React.useState(null);
+  const [tasks, setTasks] = React.useState([]);
+
+  // Sync stage tasks when stage tweak changes
+  React.useEffect(() => {
+    const stageKey = STAGES[t.stage].key;
+    setTasks(TASKS_BY_STAGE[stageKey].map(x => ({...x})));
+  }, [t.stage]);
+
+  // Apply theme + density to body
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-theme', t.dark ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-density', t.density);
+  }, [t.dark, t.density]);
+
+  // Reset screen when role changes
+  React.useEffect(() => {
+    if (role === 'student') setScreen('dashboard');
+    if (role === 'mentor') setScreen('mentor-dash');
+    if (role === 'admin') setScreen('admin-dash');
+  }, [role]);
+
+  const handleStageComplete = () => {
+    const completedStage = STAGES[t.stage];
+    const nextStage = STAGES[Math.min(STAGES.length - 1, t.stage + 1)];
+    setCelebrating({
+      title: `${completedStage.label} complete!`,
+      message: `Your team just unlocked the next phase. The ${nextStage.label} toolkit is now open.`,
+      next: nextStage.label,
+    });
+    setTweak('stage', Math.min(STAGES.length - 1, t.stage + 1));
+  };
+
+  if (view === 'landing') {
+    return (
+      <ToastProvider>
+        <LandingPage onEnter={() => setView('app')}/>
+        <AppTweaks t={t} setTweak={setTweak} role={role} setRole={setRole}/>
+      </ToastProvider>
+    );
+  }
+
+  return (
+    <ToastProvider>
+      <div className="app">
+        <Sidebar role={role} screen={screen} setScreen={setScreen} setView={setView}/>
+        <main className="main">
+          <Topbar role={role} setRole={setRole} screen={screen} t={t}/>
+          <AppScreen role={role} screen={screen} setScreen={setScreen} t={t} tasks={tasks} setTasks={setTasks} onStageComplete={handleStageComplete}/>
+        </main>
+      </div>
+      {celebrating && <Celebrate stage={celebrating} onClose={() => setCelebrating(null)}/>}
+      <AppTweaks t={t} setTweak={setTweak} role={role} setRole={setRole}/>
+    </ToastProvider>
+  );
+}
+
+function Sidebar({ role, screen, setScreen, setView }) {
+  const nav = role === 'student' ? NAV_STUDENT : role === 'mentor' ? NAV_MENTOR : NAV_ADMIN;
+  return (
+    <aside className="sidebar">
+      <div className="sidebar-h">
+        <div style={{cursor: 'pointer'}} onClick={() => setView('landing')}>
+          <Wordmark/>
+        </div>
+        <div className="muted" style={{fontSize: 11, marginTop: 6, letterSpacing:'.04em'}}>Cohort SP26 · MIT Sloan</div>
+      </div>
+      <div className="sidebar-nav">
+        {nav.map((item, i) => {
+          if (item.sect) return <div key={'s'+i} className="sidebar-sect">{item.sect}</div>;
+          const Ic = I[item.icon];
+          return (
+            <div key={item.key} className={`nav-item ${screen === item.key ? 'active' : ''}`} onClick={() => setScreen(item.key)}>
+              <span className="nav-ic"><Ic size={16}/></span>
+              <span>{item.label}</span>
+              {item.badge && <span className="nav-badge">{item.badge}</span>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="sidebar-f">
+        <Avatar name="Anaya Kapoor" initials="AK" avc="av-1"/>
+        <div style={{flex:1, minWidth: 0}}>
+          <div style={{fontWeight: 500, fontSize: 13}}>Anaya Kapoor</div>
+          <div className="muted" style={{fontSize: 11}}>{role === 'student' ? 'Student · CEO' : role === 'mentor' ? 'Faculty mentor' : 'Program admin'}</div>
+        </div>
+        <button className="btn ghost icon sm"><I.Settings size={14}/></button>
+      </div>
+    </aside>
+  );
+}
+
+function Topbar({ role, setRole, screen, t }) {
+  const titles = {
+    'dashboard': 'Dashboard', 'idea': 'My idea', 'team': 'Team',
+    'validation': 'Validation', 'prototype': 'Prototype', 'mentor': 'Mentors',
+    'customers': 'First customers', 'pitch': 'Pitch deck', 'marketplace': 'Marketplace',
+    'leaderboard': 'Leaderboard',
+    'mentor-dash': 'Dashboard', 'mentor-teams': 'My teams', 'mentor-reviews': 'Reviews', 'mentor-calendar': 'Office hours',
+    'admin-dash': 'Overview', 'admin-teams': 'Teams', 'admin-mentors': 'Mentors', 'admin-resources': 'Resources', 'admin-settings': 'Settings',
+  };
+  const [notifsOpen, setNotifsOpen] = React.useState(false);
+  return (
+    <div className="topbar">
+      <div className="crumbs">
+        <span>{role === 'student' ? 'Cohere Labs' : role === 'mentor' ? 'Mentor portal' : 'Admin · SP26'}</span>
+        <I.Chevron size={12} style={{opacity:.5}}/>
+        <b>{titles[screen] || 'Page'}</b>
+      </div>
+
+      <div className="topbar-r">
+        <div className="role-switch">
+          {['student', 'mentor', 'admin'].map(r => (
+            <button key={r} className={role === r ? 'on' : ''} onClick={() => setRole(r)}>
+              {r.charAt(0).toUpperCase() + r.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        <button className="btn ghost icon"><I.Search size={16}/></button>
+
+        <div style={{position:'relative'}}>
+          <button className="btn ghost icon" onClick={() => setNotifsOpen(!notifsOpen)} style={{position:'relative'}}>
+            <I.Bell size={16}/>
+            <span style={{position:'absolute', top: 6, right: 6, width: 6, height: 6, borderRadius:'50%', background:'var(--orange-500)'}}/>
+          </button>
+          {notifsOpen && (
+            <>
+              <div style={{position:'fixed', inset: 0, zIndex: 40}} onClick={() => setNotifsOpen(false)}/>
+              <div className="card" style={{position:'absolute', right: 0, top: 'calc(100% + 4px)', width: 360, zIndex: 50, boxShadow: 'var(--shadow-3)'}}>
+                <div className="card-h"><h3>Notifications</h3><div className="spacer"/><span className="muted" style={{fontSize: 11}}>3 unread</span></div>
+                <div className="card-b" style={{padding: 0}}>
+                  {NOTIFICATIONS.map((n, i) => (
+                    <div key={n.id} style={{padding:'12px var(--pad)', borderBottom: i < NOTIFICATIONS.length-1 ? '1px solid var(--rule-2)' : 0, background: n.unread ? 'var(--orange-50)' : 'transparent', display:'flex', gap:10}}>
+                      <span className="dot" style={{width: 6, height: 6, borderRadius:'50%', background: n.unread ? 'var(--orange-500)' : 'var(--rule)', marginTop: 6, flex:'none'}}/>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize: 13}}><b style={{fontWeight: 500}}>{n.who}</b> {n.text}</div>
+                        <div className="muted num" style={{fontSize: 11, marginTop: 2}}>{n.time} ago</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AppScreen({ role, screen, setScreen, t, tasks, setTasks, onStageComplete }) {
+  if (role === 'mentor') return <MentorView subscreen={screen} setSubscreen={setScreen}/>;
+  if (role === 'admin')  return <AdminView subscreen={screen}/>;
+
+  // Student
+  if (screen === 'dashboard') return <StudentDashboard stage={STAGES[t.stage]} stageIdx={t.stage} tasks={tasks} setTasks={setTasks} populated={t.populated} gamification={t.gamification} onStageComplete={onStageComplete} goto={setScreen}/>;
+  if (screen === 'idea') return <IdeaSubmission populated={t.populated} goto={setScreen}/>;
+  if (screen === 'team') return <TeamScreen/>;
+  if (screen === 'validation') return <ValidationScreen populated={t.populated}/>;
+  if (screen === 'prototype') return <PrototypeScreen populated={t.populated}/>;
+  if (screen === 'mentor') return <MentorScreen/>;
+  if (screen === 'customers') return <CustomersScreen populated={t.populated}/>;
+  if (screen === 'pitch') return <PitchScreen/>;
+  if (screen === 'marketplace') return <MarketplaceScreen/>;
+  if (screen === 'leaderboard') return <LeaderboardScreen/>;
+  return <div className="content"><div className="muted">Screen not found.</div></div>;
+}
+
+function AppTweaks({ t, setTweak, role, setRole }) {
+  return (
+    <TweaksPanel>
+      <TweakSection label="Appearance"/>
+      <TweakToggle label="Dark mode" value={t.dark} onChange={v => setTweak('dark', v)}/>
+      <TweakRadio label="Density" value={t.density} options={['compact','regular','spacious']} onChange={v => setTweak('density', v)}/>
+
+      <TweakSection label="Demo content"/>
+      <TweakSelect
+        label="Demo student stage"
+        value={t.stage}
+        options={STAGES.map((s, i) => ({ value: i, label: `${i+1}. ${s.label}` }))}
+        onChange={v => setTweak('stage', Number(v))}
+      />
+      <TweakToggle label="Populated content" value={t.populated} onChange={v => setTweak('populated', v)}/>
+
+      <TweakSection label="Gamification"/>
+      <TweakRadio label="Intensity" value={t.gamification} options={['light','medium','heavy']} onChange={v => setTweak('gamification', v)}/>
+
+      <TweakSection label="Active role"/>
+      <TweakRadio label="View as" value={role} options={['student','mentor','admin']} onChange={v => setRole(v)}/>
+    </TweaksPanel>
+  );
+}
+
+// Mount
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App/>);
+
